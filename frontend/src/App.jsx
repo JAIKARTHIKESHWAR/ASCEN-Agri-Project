@@ -82,6 +82,55 @@ function App() {
     }
   }, [isDark]);
 
+  // Load initial data from backend PostgreSQL database on mount
+  useEffect(() => {
+    async function fetchInitialDataset() {
+      try {
+        const res = await fetch('/api/transactions?limit=100000');
+        if (res.ok) {
+          const payload = await res.json();
+          if (payload && payload.data && payload.data.length > 0) {
+            const mappedItems = payload.data.map(item => ({
+              ...item,
+              fy: item.fy || 'FY2627',
+              customerId: item.customerId || 'CUST-000',
+              division: item.division || 'VG',
+              ownTrade: item.ownTrade || 'Own',
+              materialCode: item.materialCode || 'MAT-000',
+              materialDescription: item.materialDescription || `${item.crop} ${item.variety}`,
+              seasonCode: item.seasonCode || 'N/A',
+              salesPrice: item.salesPrice || (item.qty ? Math.round(item.salesAmountINR / item.qty) : 0),
+              salesAmountINR: item.salesAmountINR,
+              cogm: item.cogm
+            }));
+            setDataset(mappedItems);
+            setDatasetName('Production Database (PostgreSQL)');
+          }
+        }
+      } catch (err) {
+        console.warn("Backend database not connected, using default mock dataset:", err);
+      }
+    }
+    fetchInitialDataset();
+  }, []);
+
+  const uploadFileToBackend = async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/api/data/upload', {
+        method: 'POST',
+        body: formData
+      });
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Successfully synced CSV with backend database:', result);
+      }
+    } catch (err) {
+      console.error('Failed to sync CSV with backend database:', err);
+    }
+  };
+
   // Compute unique filters dynamically from active dataset
   const uniqueStates = useMemo(() => {
     return [...new Set(dataset.map(item => item.state).filter(Boolean))].sort();
@@ -130,6 +179,9 @@ function App() {
   const handleCSVUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
+
+    // Sync file upload to the Express PostgreSQL backend
+    uploadFileToBackend(file);
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -231,11 +283,34 @@ function App() {
     reader.readAsText(file);
   };
 
-  const handleResetToDefault = () => {
-    setDataset(mockSalesData);
-    setDatasetName('Default SAP Mock Data');
-    setFilters(INITIAL_FILTERS);
-    alert("Restored default SAP mockup dataset.");
+  const handleResetToDefault = async () => {
+    try {
+      const res = await fetch('/api/transactions?limit=100000');
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload && payload.data && payload.data.length > 0) {
+          const mappedItems = payload.data.map(item => ({
+            ...item,
+            fy: item.fy || 'FY2627',
+            customerId: item.customerId || 'CUST-000',
+            division: item.division || 'VG',
+            ownTrade: item.ownTrade || 'Own',
+            materialCode: item.materialCode || 'MAT-000',
+            materialDescription: item.materialDescription || `${item.crop} ${item.variety}`,
+            seasonCode: item.seasonCode || 'N/A',
+            salesPrice: item.salesPrice || (item.qty ? Math.round(item.salesAmountINR / item.qty) : 0),
+            salesAmountINR: item.salesAmountINR,
+            cogm: item.cogm
+          }));
+          setDataset(mappedItems);
+          setDatasetName('Production Database (PostgreSQL)');
+          setFilters(INITIAL_FILTERS);
+          alert("Successfully reloaded default production records from database.");
+        }
+      }
+    } catch (err) {
+      alert("Failed to reload default database records: " + err.message);
+    }
   };
 
   return (

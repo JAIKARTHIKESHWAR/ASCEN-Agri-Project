@@ -228,12 +228,26 @@ export default function AskAI({ filteredData, filters, setFilters, setActiveTab,
     setIsTyping(true);
 
     try {
+      const requestFilters = {};
+      if (filters) {
+        if (filters.fy) requestFilters.fy_code = filters.fy;
+        if (filters.division) requestFilters.division = filters.division;
+        if (filters.distributionChannel) requestFilters.dist_channel = filters.distributionChannel;
+        if (filters.state) requestFilters.state = filters.state;
+        if (filters.crop) requestFilters.crop = filters.crop;
+        if (filters.startDate) requestFilters.start_date = filters.startDate;
+        if (filters.endDate) requestFilters.end_date = filters.endDate;
+      }
+
       const response = await fetch('/api/ask', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ question: textToSend }),
+        body: JSON.stringify({ 
+          question: textToSend,
+          filters: requestFilters
+        }),
       });
 
       if (!response.ok) {
