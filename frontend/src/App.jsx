@@ -70,6 +70,7 @@ function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [dataset, setDataset] = useState(mockSalesData);
   const [datasetName, setDatasetName] = useState('Default SAP Mock Data');
+  const [showFilters, setShowFilters] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -162,6 +163,10 @@ function App() {
   const handleResetFilters = () => {
     setFilters(INITIAL_FILTERS);
   };
+
+  const activeFiltersCount = useMemo(() => {
+    return Object.keys(filters).filter(key => filters[key] !== '').length;
+  }, [filters]);
 
   const getTabLabel = (tabId) => {
     switch (tabId) {
@@ -368,6 +373,25 @@ function App() {
                 Upload CSV
               </button>
 
+              {/* Toggle Filters */}
+              <button 
+                className="btn-export" 
+                style={{ 
+                  padding: '6px 12px', 
+                  fontSize: '0.75rem', 
+                  gap: '4px', 
+                  backgroundColor: showFilters ? 'var(--text-primary)' : 'var(--bg-primary)', 
+                  color: showFilters ? 'var(--bg-primary)' : 'var(--text-primary)', 
+                  borderColor: showFilters ? 'var(--text-primary)' : 'var(--border-color)' 
+                }}
+                onClick={() => setShowFilters(prev => !prev)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+                Filter{activeFiltersCount > 0 ? ` (${activeFiltersCount})` : ''}
+              </button>
+
               {/* PDF Report Export Trigger */}
               <button 
                 className="btn-export" 
@@ -384,14 +408,16 @@ function App() {
           </div>
 
           {/* Global Filter Bar */}
-          <FilterBar
-            filters={filters}
-            setFilters={setFilters}
-            onReset={handleResetFilters}
-            uniqueStates={uniqueStates}
-            uniqueCrops={uniqueCrops}
-            cropsByDivision={cropsByDivision}
-          />
+          {showFilters && (
+            <FilterBar
+              filters={filters}
+              setFilters={setFilters}
+              onReset={handleResetFilters}
+              uniqueStates={uniqueStates}
+              uniqueCrops={uniqueCrops}
+              cropsByDivision={cropsByDivision}
+            />
+          )}
         </header>
 
         {/* Tab Module Rendering */}

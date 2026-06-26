@@ -13,8 +13,46 @@ export function formatCurrency(value) {
   }
 }
 
+// Hook to measure container size dynamically for responsive SVGs
+function useContainerSize(containerRef) {
+  const [size, setSize] = useState({ width: 600, height: 240 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const updateSize = () => {
+      const rect = containerRef.current.getBoundingClientRect();
+      setSize({
+        width: rect.width || 600,
+        height: rect.height || 240
+      });
+    };
+
+    updateSize();
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (!entries || entries.length === 0) return;
+      const { width, height } = entries[0].contentRect;
+      setSize({
+        width: width || 600,
+        height: height || 240
+      });
+    });
+
+    resizeObserver.observe(containerRef.current);
+    window.addEventListener('resize', updateSize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateSize);
+    };
+  }, [containerRef]);
+
+  return size;
+}
+
 // 1. Donut Chart Component
-export function DonutChart({ data, title }) {
+export function DonutChart({ data, title, height = 240 }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
@@ -38,8 +76,8 @@ export function DonutChart({ data, title }) {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', height: '180px' }}>
+    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: '100%', height: `${height}px`, gap: '20px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', height: '180px', width: '180px', flexShrink: 0 }}>
         <svg viewBox="0 0 180 180" style={{ width: '180px', height: '180px' }}>
           <circle
             cx={center}
@@ -113,49 +151,51 @@ export function DonutChart({ data, title }) {
         </svg>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px', fontSize: '0.8rem' }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Division</th>
-            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Per %</th>
-            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Currency</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((item, idx) => {
-            if (item.value === 0) return null;
-            const percentage = ((item.value / total) * 100).toFixed(1);
-            const color = colors[idx % colors.length];
-            const isHovered = hoveredIdx === idx;
+      <div style={{ minWidth: '180px', flex: 1, maxWidth: '240px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+              <th style={{ padding: '4px 6px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Division</th>
+              <th style={{ padding: '4px 6px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Per %</th>
+              <th style={{ padding: '4px 6px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Currency</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((item, idx) => {
+              if (item.value === 0) return null;
+              const percentage = ((item.value / total) * 100).toFixed(1);
+              const color = colors[idx % colors.length];
+              const isHovered = hoveredIdx === idx;
 
-            return (
-              <tr
-                key={item.label}
-                style={{
-                  backgroundColor: isHovered ? 'var(--bg-hover)' : 'transparent',
-                  cursor: 'pointer',
-                  transition: 'background-color var(--transition-fast)',
-                }}
-                onMouseEnter={() => setHoveredIdx(idx)}
-                onMouseLeave={() => setHoveredIdx(null)}
-              >
-                <td style={{ padding: '8px 8px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)' }}>
-                  <span className="legend-color" style={{ backgroundColor: color, display: 'inline-block', width: '10px', height: '10px', borderRadius: '2px', flexShrink: 0 }} />
-                  <span style={{ color: 'var(--text-primary)', fontWeight: isHovered ? '600' : '400' }}>
-                    {item.label}
-                  </span>
-                </td>
-                <td style={{ padding: '8px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: '500', borderBottom: '1px solid var(--border-color)' }}>
-                  {percentage}%
-                </td>
-                <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: '600', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  {formatCurrency(item.value)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+              return (
+                <tr
+                  key={item.label}
+                  style={{
+                    backgroundColor: isHovered ? 'var(--bg-hover)' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'background-color var(--transition-fast)',
+                  }}
+                  onMouseEnter={() => setHoveredIdx(idx)}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                >
+                  <td style={{ padding: '6px 6px', display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid var(--border-color)' }}>
+                    <span className="legend-color" style={{ backgroundColor: color, display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', flexShrink: 0 }} />
+                    <span style={{ color: 'var(--text-primary)', fontWeight: isHovered ? '600' : '400' }}>
+                      {item.label}
+                    </span>
+                  </td>
+                  <td style={{ padding: '6px 6px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: '500', borderBottom: '1px solid var(--border-color)' }}>
+                    {percentage}%
+                  </td>
+                  <td style={{ padding: '6px 6px', textAlign: 'right', fontWeight: '600', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
+                    {formatCurrency(item.value)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -175,8 +215,7 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
   const paddingTop = 20;
   const paddingBottom = 40;
 
-  const width = 600;
-  const viewHeight = height;
+  const { width, height: viewHeight } = useContainerSize(containerRef);
 
   const xMax = width - paddingLeft - paddingRight;
   const yMax = viewHeight - paddingTop - paddingBottom;
@@ -202,15 +241,11 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
 
   // Handle tooltip sizing and positioning relative to container bounding client rect
   const handlePointHover = (event, point, index) => {
-    const rect = containerRef.current.getBoundingClientRect();
-    const xRatio = rect.width / width;
-    const yRatio = rect.height / height;
-    
     setHoveredIdx(index);
     setTooltip({
       show: true,
-      x: point.x * xRatio,
-      y: (point.y - 15) * yRatio,
+      x: point.x,
+      y: point.y - 15,
       label: point.label,
       value: point.value
     });
@@ -370,8 +405,7 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
   const paddingTop = 20;
   const paddingBottom = 40;
 
-  const width = 600;
-  const viewHeight = height;
+  const { width, height: viewHeight } = useContainerSize(containerRef);
 
   const xMax = width - paddingLeft - paddingRight;
   const yMax = viewHeight - paddingTop - paddingBottom;
@@ -387,15 +421,11 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
   const barWidth = totalBarWidth - barGap;
 
   const handleBarHover = (event, item, index, barX, barY) => {
-    const rect = containerRef.current.getBoundingClientRect();
-    const xRatio = rect.width / width;
-    const yRatio = rect.height / height;
-    
     setHoveredIdx(index);
     setTooltip({
       show: true,
-      x: (barX + barWidth / 2) * xRatio,
-      y: (barY - 10) * yRatio,
+      x: barX + barWidth / 2,
+      y: barY - 10,
       label: item[xKey],
       value: item[yKey]
     });
@@ -540,8 +570,7 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
   const paddingRight = 20;
   const paddingTop = 20;
   const paddingBottom = 40;
-  const width = 600;
-  const viewHeight = height;
+  const { width, height: viewHeight } = useContainerSize(containerRef);
 
   const xMax = width - paddingLeft - paddingRight;
   const yMax = viewHeight - paddingTop - paddingBottom;
@@ -570,15 +599,11 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
   }
 
   const handlePointHover = (event, point, index) => {
-    const rect = containerRef.current.getBoundingClientRect();
-    const xRatio = rect.width / width;
-    const yRatio = rect.height / height;
-
     setHoveredIdx(index);
     setTooltip({
       show: true,
-      x: point.x * xRatio,
-      y: (point.y - 15) * yRatio,
+      x: point.x,
+      y: point.y - 15,
       label: point.label,
       value: point.value
     });
@@ -729,12 +754,12 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
   }
 
-  const width = 600;
+  const containerRef = useRef(null);
+  const { width, height: viewHeight } = useContainerSize(containerRef);
   const paddingLeft = 55;
   const paddingRight = 24;
   const paddingTop = 24;
   const paddingBottom = 44;
-  const viewHeight = height;
   const xMax = width - paddingLeft - paddingRight;
   const yMax = viewHeight - paddingTop - paddingBottom;
 
@@ -763,7 +788,7 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
   const scaleY = (value) => paddingTop + yMax - (value / maxValue) * yMax;
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: `${height}px` }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: `${height}px` }}>
       <svg viewBox={`0 0 ${width} ${viewHeight}`} className="chart-svg" style={{ width: '100%', height: '100%' }}>
         <line x1={paddingLeft} y1={paddingTop + yMax} x2={width - paddingRight} y2={paddingTop + yMax} className="chart-axis-line" />
         <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={paddingTop + yMax} className="chart-axis-line" />

@@ -315,11 +315,6 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
               <h3 className="card-title">Gross Sales Trend</h3>
               <p className="card-subtitle">Aggregations for selected filters</p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {renderUtilityButton('Open trend in full view', 'M14 3h7v7M21 3l-8 8')}
-              {renderUtilityButton('Download chart', 'M12 3v12M8 11l4 4 4-4M5 21h14')}
-              {renderExpandButton('states')}
-            </div>
             
             {/* Chart Type Toggle Button Group */}
             <div style={{ 
@@ -397,14 +392,12 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
                 </button>
               ))}
               </div>
-              {renderUtilityButton('Open division breakdown', 'M14 3h7v7M21 3l-8 8')}
-              {renderUtilityButton('Download chart', 'M12 3v12M8 11l4 4 4-4M5 21h14')}
             </div>
           </div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            {divisionView === 'donut' && <DonutChart data={divisionData} />}
-            {divisionView === 'treemap' && <TreemapChart data={divisionData} />}
-            {divisionView === 'sunburst' && <SunburstChart data={divisionData} />}
+          <div style={{ height: '240px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+            {divisionView === 'donut' && <DonutChart data={divisionData} height={240} />}
+            {divisionView === 'treemap' && <TreemapChart data={divisionData} height={240} />}
+            {divisionView === 'sunburst' && <SunburstChart data={divisionData} height={240} />}
           </div>
         </div>
       </section>
