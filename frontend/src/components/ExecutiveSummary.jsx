@@ -23,7 +23,8 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
   // 1. Monthly sales trend calculations
   const monthlyMap = {};
   filteredData.forEach(item => {
-    if (item.billingType !== 'F2') return; // Only count standard sales invoices
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt !== 'F2' && bt !== 'ZF2' && bt !== 'ZIF2') return; // Only count standard sales invoices
     const d = new Date(item.date);
     const key = item.date.substring(0, 7); // 'YYYY-MM'
     const label = d.toLocaleString('en-US', { month: 'short', year: '2-digit' });
@@ -40,8 +41,9 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
   const stateMap = {};
   filteredData.forEach(item => {
     let sign = 0;
-    if (item.billingType === 'F2') sign = 1;
-    else if (item.billingType === 'RE' || item.billingType === 'S1') sign = -1;
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') sign = 1;
+    else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1') sign = -1;
     else return; // Ignore stock transfer for external sales
     
     if (!stateMap[item.state]) {
@@ -59,7 +61,8 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
   // 4. Division split for Donut Chart
   const divMap = { VG: 0, FC: 0 };
   filteredData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       divMap[item.division] = (divMap[item.division] || 0) + item.salesAmountINR;
     }
   });
@@ -76,7 +79,8 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
     let vgSales = 0;
     let fcSales = 0;
     filteredData.forEach(item => {
-      if (item.state === stateName && item.billingType === 'F2') {
+      const bt = (item.billingType || '').toUpperCase();
+      if (item.state === stateName && (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2')) {
         if (item.division === 'VG') vgSales += item.salesAmountINR;
         if (item.division === 'FC') fcSales += item.salesAmountINR;
       }
@@ -95,8 +99,9 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
   let fcNet = 0;
   filteredData.forEach(item => {
     let sign = 0;
-    if (item.billingType === 'F2') sign = 1;
-    else if (item.billingType === 'RE' || item.billingType === 'S1') sign = -1;
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') sign = 1;
+    else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1') sign = -1;
     
     if (item.division === 'VG') vgNet += item.salesAmountINR * sign;
     if (item.division === 'FC') fcNet += item.salesAmountINR * sign;
@@ -116,11 +121,12 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
   const stateReturnsMap = {};
 
   filteredData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       stateGrossMap[item.state] = (stateGrossMap[item.state] || 0) + item.salesAmountINR;
       cropGrossMap[item.crop] = (cropGrossMap[item.crop] || 0) + item.salesAmountINR;
       dealerGrossMap[item.customerName] = (dealerGrossMap[item.customerName] || 0) + item.salesAmountINR;
-    } else if (item.billingType === 'RE') {
+    } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
       stateReturnsMap[item.state] = (stateReturnsMap[item.state] || 0) + item.salesAmountINR;
     }
   });
@@ -360,7 +366,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
         </div>
 
         {/* Division Split Card */}
-        <div id="division-contribution" className="card">
+        <div id="division-contribution" className="card" style={{ overflow: 'hidden' }}>
           <div className="card-header">
             <div>
               <h3 className="card-title">Division Contribution</h3>

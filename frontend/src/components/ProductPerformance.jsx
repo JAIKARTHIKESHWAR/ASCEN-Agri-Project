@@ -21,7 +21,8 @@ export default function ProductPerformance({ filteredData }) {
   // Group by crop
   const cropMap = {};
   divData.forEach(item => {
-    if (item.billingType !== 'F2') return;
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt !== 'F2' && bt !== 'ZF2' && bt !== 'ZIF2') return;
     cropMap[item.crop] = (cropMap[item.crop] || 0) + item.salesAmountINR;
   });
 
@@ -40,7 +41,10 @@ export default function ProductPerformance({ filteredData }) {
   const cropToQuery = selectedCrop || (crops.length > 0 ? crops[0].name : null);
 
   if (cropToQuery) {
-    const cropInvoices = divData.filter(item => item.crop === cropToQuery && item.billingType === 'F2');
+    const cropInvoices = divData.filter(item => {
+      const bt = (item.billingType || '').toUpperCase();
+      return item.crop === cropToQuery && (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2');
+    });
     
     // Group varieties
     const varMap = {};
@@ -80,7 +84,8 @@ export default function ProductPerformance({ filteredData }) {
   // Own vs Trade split
   const ownTradeMap = { Own: 0, Trade: 0 };
   divData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       ownTradeMap[item.ownTrade] = (ownTradeMap[item.ownTrade] || 0) + item.salesAmountINR;
     }
   });

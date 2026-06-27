@@ -868,14 +868,15 @@ export function TreemapChart({ data, height = 240 }) {
   });
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', gap: '10px', minHeight: `${height}px`, flex: 1 }}>
+    <div style={{ width: '100%', height: '100%', display: 'flex', gap: '10px', minHeight: `${height}px`, flex: 1, overflow: 'hidden', boxSizing: 'border-box', flexWrap: 'wrap' }}>
       {data.map((item, index) => {
         const rect = rects[index];
+        const sharePct = (item.value / total) * 100;
         return (
           <div
             key={item.label}
             style={{
-              flex: `${item.value} ${item.value} 0`,
+              flex: `${sharePct} ${sharePct} 130px`,
               background: rect.color,
               borderRadius: '14px',
               padding: '14px',
@@ -883,7 +884,7 @@ export function TreemapChart({ data, height = 240 }) {
               flexDirection: 'column',
               justifyContent: 'space-between',
               color: 'white',
-              minWidth: '0',
+              minWidth: '130px',
               boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12)'
             }}
           >

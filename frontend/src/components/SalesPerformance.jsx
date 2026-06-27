@@ -4,6 +4,25 @@ import { DonutChart, LineChart, BarChart, AreaChart, HeatmapChart, WaterfallChar
 export default function SalesPerformance({ filteredData, chartPreferences = {}, setChartPreferences = () => {} }) {
   const [activeDiv, setActiveDiv] = useState('VG'); // 'VG' or 'FC'
   const [chartType, setChartType] = useState('line'); // 'line' or 'bar'
+  const [channelView, setChannelView] = useState('donut');
+
+  const activeTrendChart = chartPreferences['monthly-trend'] || chartType;
+  const activeChannelChart = chartPreferences['distribution-channels'] || channelView;
+
+  const trendModes = [
+    { key: 'line', label: 'Line' },
+    { key: 'bar', label: 'Bar' },
+    { key: 'area', label: 'Area' },
+    { key: 'heatmap', label: 'Heatmap' },
+    { key: 'waterfall', label: 'Waterfall' }
+  ];
+
+  const channelModes = [
+    { key: 'donut', label: 'Donut' },
+    { key: 'treemap', label: 'Treemap' },
+    { key: 'sunburst', label: 'Sunburst' },
+     
+  ];
 
   // Filter data by active division
   const divData = filteredData.filter(item => item.division === activeDiv);
@@ -11,7 +30,8 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
   // Group by channel
   const channelMap = { Dealer: 0, Distributor: 0, Direct: 0 };
   divData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       channelMap[item.distributionChannel] = (channelMap[item.distributionChannel] || 0) + item.salesAmountINR;
     }
   });
@@ -24,7 +44,8 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
   // Group by season (FC only)
   const seasonMap = { Kharif: 0, Rabi: 0, Summer: 0 };
   divData.forEach(item => {
-    if (item.billingType === 'F2' && item.seasonCode !== 'N/A') {
+    const bt = (item.billingType || '').toUpperCase();
+    if ((bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') && item.seasonCode !== 'N/A') {
       seasonMap[item.seasonCode] = (seasonMap[item.seasonCode] || 0) + item.salesAmountINR;
     }
   });
@@ -37,7 +58,8 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
   // Group by month
   const monthlyMap = {};
   divData.forEach(item => {
-    if (item.billingType !== 'F2') return;
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt !== 'F2' && bt !== 'ZF2' && bt !== 'ZIF2') return;
     const d = new Date(item.date);
     const key = item.date.substring(0, 7);
     const label = d.toLocaleString('en-US', { month: 'short', year: '2-digit' });
@@ -57,11 +79,12 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
   let cancelled = 0;
 
   divData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       grossSales += item.salesAmountINR;
-    } else if (item.billingType === 'RE') {
+    } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
       returns += item.salesAmountINR;
-    } else if (item.billingType === 'S1') {
+    } else if (bt === 'S1' || bt === 'ZS1') {
       cancelled += item.salesAmountINR;
     }
   });
@@ -147,16 +170,16 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
             </div>
           </div>
           <div className="chart-container">
-            {chartType === 'line' ? (
-              <LineChart data={trendData} />
-            ) : (
-              <BarChart data={trendData} barColor="var(--color-sales-gross)" />
-            )}
+            {activeTrendChart === 'line' && <LineChart data={trendData} />}
+            {activeTrendChart === 'bar' && <BarChart data={trendData} barColor="var(--color-sales-gross)" />}
+            {activeTrendChart === 'area' && <AreaChart data={trendData} fillColor="var(--color-sales-gross)" />}
+            {activeTrendChart === 'heatmap' && <HeatmapChart data={trendData} />}
+            {activeTrendChart === 'waterfall' && <WaterfallChart data={trendData} />}
           </div>
         </div>
 
         {/* Channel Contribution */}
-        <div id="distribution-channels" className="card">
+        <div id="distribution-channels" className="card" style={{ overflow: 'hidden' }}>
           <div className="card-header">
             <div>
               <h3 className="card-title">Distribution Channels</h3>
@@ -193,8 +216,11 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
               ))}
             </div>
           </div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            <DonutChart data={channelChartData} />
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: '240px' }}>
+            {(activeChannelChart === 'donut' || activeChannelChart === 'pie') && <DonutChart data={channelChartData} />}
+            {activeChannelChart === 'treemap' && <TreemapChart data={channelChartData} height={240} />}
+            {activeChannelChart === 'sunburst' && <SunburstChart data={channelChartData} height={240} />}
+            
           </div>
         </div>
       </section>

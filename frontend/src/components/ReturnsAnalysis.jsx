@@ -12,9 +12,10 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   let returnsValue = 0;
 
   filteredData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       grossSales += item.salesAmountINR;
-    } else if (item.billingType === 'RE') {
+    } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
       returnsValue += item.salesAmountINR;
     }
   });
@@ -24,7 +25,8 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   // 1. Group Returns by Month for LineChart
   const monthlyMap = {};
   filteredData.forEach(item => {
-    if (item.billingType !== 'RE') return;
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt !== 'RE' && bt !== 'ZRE' && bt !== 'ZIRE') return;
     const d = new Date(item.date);
     const key = item.date.substring(0, 7);
     const label = d.toLocaleString('en-US', { month: 'short', year: '2-digit' });
@@ -41,9 +43,10 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   const stateGrossMap = {};
   const stateReturnsMap = {};
   filteredData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       stateGrossMap[item.state] = (stateGrossMap[item.state] || 0) + item.salesAmountINR;
-    } else if (item.billingType === 'RE') {
+    } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
       stateReturnsMap[item.state] = (stateReturnsMap[item.state] || 0) + item.salesAmountINR;
     }
   });
@@ -60,7 +63,8 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   // 3. Returns by Crop
   const cropReturnsMap = {};
   filteredData.forEach(item => {
-    if (item.billingType !== 'RE') return;
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt !== 'RE' && bt !== 'ZRE' && bt !== 'ZIRE') return;
     cropReturnsMap[item.crop] = (cropReturnsMap[item.crop] || 0) + item.salesAmountINR;
   });
 
@@ -72,7 +76,8 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   // 4. Returns by Channel
   const channelReturnsMap = { Dealer: 0, Distributor: 0, Direct: 0 };
   filteredData.forEach(item => {
-    if (item.billingType === 'RE') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
       channelReturnsMap[item.distributionChannel] = (channelReturnsMap[item.distributionChannel] || 0) + item.salesAmountINR;
     }
   });

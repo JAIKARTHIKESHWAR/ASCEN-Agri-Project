@@ -13,7 +13,7 @@ import {
   exportTransactions 
 } from '../controllers/transactionController.js';
 import { askQuestion } from '../controllers/askController.js';
-import { uploadMiddleware, uploadCSV } from '../controllers/uploadController.js';
+import { uploadMiddleware, uploadCSV, softResetData } from '../controllers/uploadController.js';
 import { login } from '../controllers/authController.js';
 import { bootstrapSession, newSession, getSessionHistory } from '../controllers/copilotController.js';
 import { transcribeAndProcessVoice } from '../controllers/voiceController.js';
@@ -46,6 +46,9 @@ router.post('/ask', askQuestion);
 
 // 9. Bulk Data CSV File Upload Endpoint
 router.post('/data/upload', uploadMiddleware, uploadCSV);
+
+// 9b. Soft Reset Dataset Endpoint
+router.post('/data/reset', softResetData);
 
 // 10. Filters options dropdowns cascading Endpoint
 router.get('/filters/options', getFiltersOptions);

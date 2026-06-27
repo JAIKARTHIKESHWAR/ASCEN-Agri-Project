@@ -31,14 +31,15 @@ export function calculateKPIs(filteredData) {
   let totalCOGM = 0;
 
   filteredData.forEach(item => {
-    if (item.billingType === 'F2') {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       grossSales += item.salesAmountINR;
       totalCOGM += item.cogm;
-    } else if (item.billingType === 'RE') {
+    } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
       returnsValue += item.salesAmountINR;
-    } else if (item.billingType === 'S1') {
+    } else if (bt === 'S1' || bt === 'ZS1') {
       cancelledValue += item.salesAmountINR;
-    } else if (item.billingType === 'IPT') {
+    } else if (bt === 'IPT' || bt === 'ZSTO') {
       iptValue += item.salesAmountINR;
     }
   });

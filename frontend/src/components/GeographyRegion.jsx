@@ -7,7 +7,8 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
   // Group by state
   const stateMap = {};
   filteredData.forEach(item => {
-    if (item.billingType !== 'F2') return;
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt !== 'F2' && bt !== 'ZF2' && bt !== 'ZIF2') return;
     if (!stateMap[item.state]) {
       stateMap[item.state] = { gross: 0, count: 0, rbm: item.rbm, am: item.am, dbm: item.dbm };
     }
@@ -39,7 +40,10 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
   let selectedStateHierarchy = null;
 
   if (selectedState) {
-    const stateInvoices = filteredData.filter(item => item.state === selectedState && item.billingType === 'F2');
+    const stateInvoices = filteredData.filter(item => {
+      const bt = (item.billingType || '').toUpperCase();
+      return item.state === selectedState && (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2');
+    });
     
     // Group by territory
     const terrMap = {};

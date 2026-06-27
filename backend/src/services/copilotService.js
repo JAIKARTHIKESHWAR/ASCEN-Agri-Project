@@ -1,7 +1,7 @@
 import { translateQuestionToPlan } from '../ai/queryTranslator.js';
 import { executeQueryPlan } from '../services/queryExecutor.js';
 import { synthesizeAnswer } from '../ai/answerSynthesizer.js';
-import { dbRun, dbGet, dbAll } from '../database.js';
+import { dbRun, dbGet, dbAll, dbTransaction } from '../database.js';
 
 const ALLOWED_VISUALIZATIONS = [
   "line",
@@ -21,6 +21,11 @@ const defaultSuggestions = [
   "Which crop performed best in Vegetable Division?",
   "Show sales returns by state"
 ];
+
+function sanitizeEncoding(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/₹/g, 'Rs.');
+}
 
 /**
  * Shared service layer processing BI Copilot question statefully
@@ -50,13 +55,14 @@ export async function processQuestion({ question, sessionId, filters }) {
   if (!sessionContext.filters) sessionContext.filters = {};
   if (!sessionContext.chartPreferences) sessionContext.chartPreferences = {};
 
-  // 2. Save user message to database
+  // 2. Save user message to database (sanitized)
   let userMsgId = null;
   if (session.id !== '00000000-0000-0000-0000-000000000000') {
     try {
+      const sanitizedQuestion = sanitizeEncoding(question);
       const userMsg = await dbGet(
         "INSERT INTO copilot_messages (session_id, role, content) VALUES ($1, 'user', $2) RETURNING id",
-        [session.id, question]
+        [session.id, sanitizedQuestion]
       );
       userMsgId = userMsg?.id;
     } catch (e) {
@@ -443,7 +449,7 @@ export async function processQuestion({ question, sessionId, filters }) {
     updatedAt: new Date().toISOString()
   };
 
-  // 13. Persist state changes
+  // 13. Persist state changes atomically within a transaction context
   if (session.id !== '00000000-0000-0000-0000-000000000000') {
     try {
       const assistMetadata = {
@@ -454,34 +460,37 @@ export async function processQuestion({ question, sessionId, filters }) {
         visualization: visualization
       };
 
-      // Save assistant message
-      const assistMsg = await dbGet(
-        "INSERT INTO copilot_messages (session_id, role, content, metadata) VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id",
-        [session.id, answer, JSON.stringify(assistMetadata)]
-      );
+      await dbTransaction(async () => {
+        // Save assistant message (sanitized)
+        const sanitizedAnswer = sanitizeEncoding(answer);
+        const assistMsg = await dbGet(
+          "INSERT INTO copilot_messages (session_id, role, content, metadata) VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id",
+          [session.id, sanitizedAnswer, JSON.stringify(assistMetadata)]
+        );
 
-      // Save session context updates
-      await dbRun(
-        "UPDATE copilot_sessions SET context = $1::jsonb, total_messages = total_messages + 2, last_activity_at = NOW(), updated_at = NOW() WHERE id = $2",
-        [JSON.stringify(newContext), session.id]
-      );
+        // Save session context updates
+        await dbRun(
+          "UPDATE copilot_sessions SET context = $1::jsonb, total_messages = total_messages + 2, last_activity_at = NOW(), updated_at = NOW() WHERE id = $2",
+          [JSON.stringify(newContext), session.id]
+        );
 
-      // Log execution stats
-      await dbRun(
-        "INSERT INTO copilot_executions (session_id, message_id, intent, query_plan, filters, result_summary, execution_status, execution_time_ms) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)",
-        [
-          session.id,
-          assistMsg.id,
-          planNav.intent || 'other',
-          JSON.stringify(queryPlan),
-          JSON.stringify(newContext.filters),
-          `Returned ${resultRows.length} rows successfully`,
-          'success',
-          executionTime
-        ]
-      );
+        // Log execution stats
+        await dbRun(
+          "INSERT INTO copilot_executions (session_id, message_id, intent, query_plan, filters, result_summary, execution_status, execution_time_ms) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)",
+          [
+            session.id,
+            assistMsg.id,
+            planNav.intent || 'other',
+            JSON.stringify(queryPlan),
+            JSON.stringify(newContext.filters),
+            `Returned ${resultRows.length} rows successfully`,
+            'success',
+            executionTime
+          ]
+        );
+      });
     } catch (dbErr) {
-      console.error('Failed to update session context data in database:', dbErr);
+      console.error('Failed to commit state changes in database transaction:', dbErr);
     }
   }
 

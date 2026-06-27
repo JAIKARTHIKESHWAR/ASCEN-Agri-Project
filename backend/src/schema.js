@@ -6,7 +6,9 @@ export const TABLE_SCHEMAS = {
       uploaded_at TEXT NOT NULL,
       source_row_count INTEGER,
       rows_imported INTEGER,
-      rows_rejected INTEGER
+      rows_rejected INTEGER,
+      file_hash TEXT UNIQUE,
+      is_active BOOLEAN DEFAULT TRUE
     );
   `,
   import_rejected_rows: `
@@ -72,8 +74,8 @@ export const TABLE_SCHEMAS = {
       UNIQUE (state, territory)
     );
   `,
-  sales_data: `
-    CREATE TABLE IF NOT EXISTS sales_data (
+  sales_data_raw: `
+    CREATE TABLE IF NOT EXISTS sales_data_raw (
       invoice_id TEXT PRIMARY KEY,
       invoice_date DATE NOT NULL,
       billing_type TEXT NOT NULL,

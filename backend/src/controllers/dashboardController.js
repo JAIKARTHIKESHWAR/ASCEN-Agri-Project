@@ -135,11 +135,13 @@ export async function getSummary(req, res) {
       ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification = 'GROSS_SALE'
       GROUP BY label
     `;
+    const DIVISION_LABELS = { VG: 'Vegetables (VG)', FC: 'Field Crops (FC)', HY: 'Hybrid (HY)', FV: 'Fruits & Veg (FV)' };
     const divRes = await dbAll(divSql, sqlParams);
     const divisionSplit = divRes.map(d => ({
-      label: d.label === 'VG' ? 'Vegetables (VG)' : 'Field Crops (FC)',
+      label: DIVISION_LABELS[d.label] || d.label || 'Other',
       value: parseFloat(d.value || 0)
     }));
+
 
     // 4. Top Rankings
     const rankedBaseSql = (field, limits) => `

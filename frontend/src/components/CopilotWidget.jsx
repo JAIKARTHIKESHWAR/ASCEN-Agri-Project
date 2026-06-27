@@ -403,18 +403,24 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
               {/* Messages viewport */}
               <div className="copilot-messages">
                 {messages.map((msg, index) => {
-                  const isUser = msg.sender === 'user';
+                  const isUser = msg.sender === 'user' || msg.role === 'user';
+                  const contentText = msg.text || msg.content;
+                  const displayTime = msg.timestamp || (msg.created_at ? new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '');
+                  
+                  // Support both metadata and raw navNotice string
+                  const navNotice = msg.navNotice || (msg.metadata?.navigateTo ? `Navigated to ${msg.metadata.navigateTo} (${msg.metadata.section || 'sales-overview'})` : null);
+
                   return (
                     <div key={index} className={`copilot-msg ${isUser ? 'user' : 'ai'}`}>
                       <div className="copilot-bubble">
-                        {msg.text}
-                        {msg.navNotice && (
+                        {contentText}
+                        {navNotice && (
                           <div style={{ marginTop: '8px', fontSize: '0.7rem', fontStyle: 'italic', color: 'var(--color-sales-net)', fontWeight: 'bold' }}>
-
+                             
                           </div>
                         )}
                       </div>
-                      <span className="copilot-metadata">{msg.timestamp}</span>
+                      <span className="copilot-metadata">{displayTime}</span>
                     </div>
                   );
                 })}

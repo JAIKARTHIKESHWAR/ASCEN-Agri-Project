@@ -74,6 +74,9 @@ function App() {
   const [showFilters, setShowFilters] = useState(false);
   const [activeSection, setActiveSection] = useState(null);
   const [chartPreferences, setChartPreferences] = useState({});
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [toast, setToast] = useState(null);
 
   const fileInputRef = useRef(null);
 
@@ -233,22 +236,20 @@ function App() {
     fetchInitialDataset();
   }, []);
 
-  const uploadFileToBackend = async (file) => {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await fetch('/api/data/upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Successfully synced CSV with backend database:', result);
-      }
-    } catch (err) {
-      console.error('Failed to sync CSV with backend database:', err);
-    }
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
   };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+
 
   // Compute unique filters dynamically from active dataset
   const uniqueStates = useMemo(() => {
@@ -299,141 +300,80 @@ function App() {
     }
   };
 
-  const handleCSVUpload = (event) => {
+  const handleCSVUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Sync file upload to the Express PostgreSQL backend
-    uploadFileToBackend(file);
+    try {
+      showToast(`Uploading ${file.name}... Please wait.`, 'info');
+      const formData = new FormData();
+      formData.append('file', file);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target.result;
-        const parsedLines = parseCSV(text);
-        if (parsedLines.length < 2) {
-          alert("CSV file does not contain enough rows.");
-          return;
-        }
+      const response = await fetch('/api/data/upload', {
+        method: 'POST',
+        body: formData
+      });
 
-        const headers = parsedLines[0].map(h => h.trim().toLowerCase());
-        const findIndex = (fields) => headers.findIndex(h => fields.includes(h));
+      const result = await response.json();
 
-        const idxInvoice = findIndex(['invoice id', 'invoice number', 'billing document', 'invoiceno', 'invoice_id', 'invoiceid']);
-        const idxDate = findIndex(['date', 'invoice date', 'billing date', 'date']);
-        const idxBillingType = findIndex(['billing type', 'type', 'billing_type', 'billingtype']);
-        const idxBillingDesc = findIndex(['billing type description', 'type description', 'billing_type_description', 'billingtypedescription', 'description']);
-        const idxChannel = findIndex(['distribution channel', 'channel', 'distribution_channel', 'distributionchannel']);
-        const idxCustId = findIndex(['customer id', 'customer code', 'customer_id', 'customerid']);
-        const idxCustName = findIndex(['customer name', 'customer', 'customer_name', 'customername']);
-        const idxDivision = findIndex(['division', 'division']);
-        const idxCrop = findIndex(['crop', 'crop']);
-        const idxVariety = findIndex(['variety', 'variety']);
-        const idxSalesUnit = findIndex(['sales unit', 'unit', 'sales_unit', 'salesunit']);
-        const idxOwnTrade = findIndex(['own/trade', 'own / trade', 'own_trade', 'owntrade']);
-        const idxMaterialCode = findIndex(['material code', 'material', 'material_code', 'materialcode']);
-        const idxMaterialDesc = findIndex(['material description', 'material_description', 'materialdescription']);
-        const idxSeason = findIndex(['season code', 'season', 'season_code', 'seasoncode']);
-        const idxState = findIndex(['state', 'state']);
-        const idxTerritory = findIndex(['territory', 'territory']);
-        const idxAM = findIndex(['am', 'area manager', 'am']);
-        const idxRBM = findIndex(['rbm', 'regional business manager', 'rbm']);
-        const idxDBM = findIndex(['dbm', 'district business manager', 'dbm']);
-        const idxQty = findIndex(['quantity', 'qty', 'quantity']);
-        const idxPrice = findIndex(['sales price', 'price', 'sales_price', 'salesprice']);
-        const idxAmount = findIndex(['amount inr', 'sales amount inr', 'amount', 'revenue', 'sales_amount_inr', 'salesamountinr']);
-        const idxCOGM = findIndex(['cogm', 'cogm']);
-
-        // Parse rows
-        const items = [];
-        for (let i = 1; i < parsedLines.length; i++) {
-          const row = parsedLines[i];
-          if (row.length < 2 || (row.length === 1 && row[0] === '')) continue; // skip blank rows
-
-          // Parse numbers, fallback to defaults
-          const qty = idxQty !== -1 ? parseInt(row[idxQty], 10) || 0 : 0;
-          const salesPrice = idxPrice !== -1 ? parseFloat(row[idxPrice]) || 0 : 0;
-          const salesAmountINR = idxAmount !== -1 ? parseFloat(row[idxAmount]) || (qty * salesPrice) : (qty * salesPrice);
-          const cogm = idxCOGM !== -1 ? parseFloat(row[idxCOGM]) || Math.round(salesAmountINR * 0.7) : Math.round(salesAmountINR * 0.7);
-
-          // Get dates and extract Financial Year
-          const date = idxDate !== -1 ? row[idxDate].trim() : new Date().toISOString().split('T')[0];
-          let fy = 'FY2627';
-          if (date) {
-            const yr = new Date(date).getFullYear();
-            const mo = new Date(date).getMonth(); // 0-11
-            if (yr === 2024 && mo >= 3 || yr === 2025 && mo < 3) fy = 'FY2425';
-            else if (yr === 2025 && mo >= 3 || yr === 2026 && mo < 3) fy = 'FY2526';
-          }
-
-          items.push({
-            invoiceId: idxInvoice !== -1 ? row[idxInvoice].trim() : `INV-${fy}-${10000 + i}`,
-            date,
-            fy,
-            billingType: idxBillingType !== -1 ? row[idxBillingType].trim() : 'F2',
-            billingTypeDescription: idxBillingDesc !== -1 ? row[idxBillingDesc].trim() : 'Standard Invoice',
-            distributionChannel: idxChannel !== -1 ? row[idxChannel].trim() : 'Dealer',
-            customerId: idxCustId !== -1 ? row[idxCustId].trim() : 'CUST-000000',
-            customerName: idxCustName !== -1 ? row[idxCustName].trim() : 'Customer Name',
-            division: idxDivision !== -1 ? row[idxDivision].trim().toUpperCase() : 'VG',
-            crop: idxCrop !== -1 ? row[idxCrop].trim() : 'Crop',
-            variety: idxVariety !== -1 ? row[idxVariety].trim() : 'Variety',
-            salesUnit: idxSalesUnit !== -1 ? row[idxSalesUnit].trim() : 'Packets',
-            ownTrade: idxOwnTrade !== -1 ? row[idxOwnTrade].trim() : 'Own',
-            materialCode: idxMaterialCode !== -1 ? row[idxMaterialCode].trim() : 'MAT-00000',
-            materialDescription: idxMaterialDesc !== -1 ? row[idxMaterialDesc].trim() : 'Seeds',
-            seasonCode: idxSeason !== -1 ? row[idxSeason].trim() : 'N/A',
-            state: idxState !== -1 ? row[idxState].trim() : 'State',
-            territory: idxTerritory !== -1 ? row[idxTerritory].trim() : 'Territory',
-            am: idxAM !== -1 ? row[idxAM].trim() : 'Area Manager',
-            rbm: idxRBM !== -1 ? row[idxRBM].trim() : 'Regional Business Manager',
-            dbm: idxDBM !== -1 ? row[idxDBM].trim() : 'District Business Manager',
-            qty,
-            salesPrice,
-            salesAmountINR,
-            cogm
-          });
-        }
-
-        setDataset(items);
-        setDatasetName(file.name);
-        setFilters(INITIAL_FILTERS); // reset filters to fit the new dataset
-        alert(`Successfully imported ${items.length} records from ${file.name}`);
-      } catch (err) {
-        alert("Error parsing CSV file: " + err.message);
+      if (!response.ok) {
+        throw new Error(result.error || result.details || "Upload failed");
       }
-    };
-    reader.readAsText(file);
+
+      showToast(`Got it! Loaded ${result.rowsImported.toLocaleString('en-IN')} records from ${file.name}.`, 'success');
+
+      // Reload dataset from backend database
+      await reloadDatasetFromBackend(file.name);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   };
 
-  const handleResetToDefault = async () => {
+  const reloadDatasetFromBackend = async (sourceName = 'Production Database') => {
     try {
       const res = await fetch('/api/transactions?limit=100000');
       if (res.ok) {
         const payload = await res.json();
-        if (payload && payload.data && payload.data.length > 0) {
-          const mappedItems = payload.data.map(item => ({
-            ...item,
-            fy: item.fy || 'FY2627',
-            customerId: item.customerId || 'CUST-000',
-            division: item.division || 'VG',
-            ownTrade: item.ownTrade || 'Own',
-            materialCode: item.materialCode || 'MAT-000',
-            materialDescription: item.materialDescription || `${item.crop} ${item.variety}`,
-            seasonCode: item.seasonCode || 'N/A',
-            salesPrice: item.salesPrice || (item.qty ? Math.round(item.salesAmountINR / item.qty) : 0),
-            salesAmountINR: item.salesAmountINR,
-            cogm: item.cogm
-          }));
-          setDataset(mappedItems);
-          setDatasetName('Production Database (PostgreSQL)');
-          setFilters(INITIAL_FILTERS);
-          alert("Successfully reloaded default production records from database.");
-        }
+        const items = payload.data || [];
+        const mappedItems = items.map(item => ({
+          ...item,
+          fy: item.fy || 'FY2627',
+          customerId: item.customerId || 'CUST-000',
+          division: item.division || 'VG',
+          ownTrade: item.ownTrade || 'Own',
+          materialCode: item.materialCode || 'MAT-000',
+          materialDescription: item.materialDescription || `${item.crop} ${item.variety}`,
+          seasonCode: item.seasonCode || 'N/A',
+          salesPrice: item.salesPrice || (item.qty ? Math.round(item.salesAmountINR / item.qty) : 0),
+          salesAmountINR: item.salesAmountINR,
+          cogm: item.cogm
+        }));
+        setDataset(mappedItems);
+        setDatasetName(items.length > 0 ? sourceName : 'Default SAP Mock Data (Reset)');
+        setFilters(INITIAL_FILTERS);
       }
     } catch (err) {
-      alert("Failed to reload default database records: " + err.message);
+      console.error("Failed to reload database records:", err);
     }
+  };
+
+  const executeSoftReset = async () => {
+    try {
+      const res = await fetch('/api/data/reset', { method: 'POST' });
+      if (res.ok) {
+        showToast("Done! All active metrics have been soft-reset to default zero.", 'success');
+        await reloadDatasetFromBackend('Default SAP Mock Data (Reset)');
+      } else {
+        const errorData = await res.json();
+        showToast("Reset failed: " + (errorData.error || "Unknown error"), 'error');
+      }
+    } catch (err) {
+      showToast("Reset failed: " + err.message, 'error');
+    }
+  };
+
+  const handleResetToDefault = () => {
+    setShowResetConfirm(true);
   };
 
   return (
@@ -462,23 +402,21 @@ function App() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {/* Reset Dataset to Default */}
-              {datasetName !== 'Default SAP Mock Data' && (
-                <button 
-                  className="btn-reset" 
-                  style={{ padding: '6px 12px', fontSize: '0.75rem', alignSelf: 'center' }}
-                  onClick={handleResetToDefault}
-                >
-                  Restore Default
-                </button>
-              )}
+              <button 
+                className="btn-reset" 
+                style={{ padding: '6px 12px', fontSize: '0.75rem', alignSelf: 'center', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                onClick={handleResetToDefault}
+              >
+                Reset Dashboard
+              </button>
 
-              {/* Upload SAP CSV */}
+              {/* Upload SAP CSV or Excel */}
               <input
                 type="file"
                 ref={fileInputRef}
                 onChange={handleCSVUpload}
                 style={{ display: 'none' }}
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
               />
               <button 
                 className="btn-export" 
@@ -488,7 +426,7 @@ function App() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
                 </svg>
-                Upload CSV
+                Upload CSV / Excel
               </button>
 
               {/* Toggle Filters */}
@@ -602,6 +540,175 @@ function App() {
           currentFilters={filters} 
           onAIResponse={handleCopilotResponse} 
         />
+
+        {/* Soft Reset Confirmation Destructive Dialog Modal */}
+        {showResetConfirm && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 99999,
+            backdropFilter: 'blur(6px)',
+            transition: 'all 0.3s ease-in-out'
+          }}>
+            <div style={{
+              backgroundColor: 'var(--bg-primary)',
+              padding: '28px',
+              borderRadius: '16px',
+              border: '1px solid var(--border-color)',
+              width: '90%',
+              maxWidth: '420px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '18px',
+              boxShadow: '0 12px 40px rgba(0, 0, 0, 0.45)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+                <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.2rem', fontWeight: '700' }}>Reset Sales Data</h3>
+              </div>
+              
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                This action will reset all dashboard statistics and reports to zero.
+                Uploaded sales files will be preserved in database logs and can be restored later.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Type <span style={{ color: '#ef4444', fontWeight: '800' }}>RESET</span> to continue:
+                </label>
+                <input 
+                  type="text"
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  placeholder="RESET"
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-tertiary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.95rem',
+                    outline: 'none',
+                    fontWeight: '600',
+                    width: '100%',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '6px' }}>
+                <button 
+                  onClick={() => {
+                    setShowResetConfirm(false);
+                    setResetConfirmText('');
+                  }}
+                  style={{
+                    padding: '10px 18px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontSize: '0.825rem',
+                    fontWeight: '600',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={resetConfirmText !== 'RESET'}
+                  onClick={async () => {
+                    setShowResetConfirm(false);
+                    setResetConfirmText('');
+                    await executeSoftReset();
+                  }}
+                  style={{
+                    padding: '10px 18px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: resetConfirmText === 'RESET' ? '#ef4444' : 'var(--bg-tertiary)',
+                    color: resetConfirmText === 'RESET' ? 'white' : 'var(--text-muted)',
+                    cursor: resetConfirmText === 'RESET' ? 'pointer' : 'not-allowed',
+                    fontSize: '0.825rem',
+                    fontWeight: '700',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Human-Designed Trending Glassmorphic Toast */}
+        {toast && (
+          <>
+            <style>{`
+              @keyframes slideUp {
+                from {
+                  transform: translateY(24px) scale(0.96);
+                  opacity: 0;
+                }
+                to {
+                  transform: translateY(0) scale(1);
+                  opacity: 1;
+                }
+              }
+            `}</style>
+            <div style={{
+              position: 'fixed',
+              bottom: '28px',
+              right: '28px',
+              backgroundColor: toast.type === 'success' ? '#1c1c1e' : toast.type === 'error' ? '#7f1d1d' : '#27272a',
+              color: toast.type === 'success' ? '#f4f4f5' : toast.type === 'error' ? '#fca5a5' : '#e4e4e7',
+              padding: '14px 22px',
+              borderRadius: '14px',
+              boxShadow: '0 12px 36px rgba(0, 0, 0, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '14px',
+              zIndex: 999999,
+              fontWeight: '600',
+              fontSize: '0.85rem',
+              letterSpacing: '0.15px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              animation: 'slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              backdropFilter: 'blur(10px)',
+              maxWidth: '380px'
+            }}>
+              <span style={{ fontSize: '1.1rem' }}>
+                {toast.type === 'success' ? '⚡' : toast.type === 'error' ? '🚫' : '⏳'}
+              </span>
+              <div style={{ flex: 1, lineHeight: '1.4' }}>{toast.message}</div>
+              <button 
+                onClick={() => setToast(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  opacity: 0.5,
+                  fontSize: '0.9rem',
+                  fontWeight: '700',
+                  padding: '0 6px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

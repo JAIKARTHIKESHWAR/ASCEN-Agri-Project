@@ -76,25 +76,25 @@ export async function getTransactions(req, res) {
     const fetchParams = [...finalParams, limitNum, offset];
     const rawData = await dbAll(querySql, fetchParams);
     
-    // Format returned row properties for consistency
+    // Format returned row properties for consistency (PostgreSQL returns lowercase keys)
     const data = rawData.map(r => ({
-      invoiceId: r.invoiceid,
-      date: r.date,
-      fy: r.fy,
-      billingType: r.billingtype,
-      billingTypeDescription: r.billingtypedescription,
-      customerName: r.customername,
-      distributionChannel: r.distributionchannel,
+      invoiceId: r.invoiceid || r.invoice_id,
+      date: r.date || r.invoice_date,
+      fy: r.fy || r.fy_code,
+      billingType: r.billingtype || r.billing_type,
+      billingTypeDescription: r.billingtypedescription || r.billing_desc,
+      customerName: r.customername || r.customer_name,
+      distributionChannel: r.distributionchannel || r.dist_channel,
       division: r.division,
-      ownTrade: r.owntrade,
-      materialCode: r.materialcode,
-      materialDescription: r.materialdescription,
-      seasonCode: r.seasoncode,
+      ownTrade: r.owntrade || r.own_trade,
+      materialCode: r.materialcode || r.material_code,
+      materialDescription: r.materialdescription || r.material_desc,
+      seasonCode: r.seasoncode || r.season_code,
       crop: r.crop,
       variety: r.variety,
       qty: parseInt(r.qty || 0, 10),
-      salesUnit: r.salesunit,
-      salesAmountINR: parseFloat(r.salesamountinr || 0),
+      salesUnit: r.salesunit || r.sales_unit,
+      salesAmountINR: parseFloat(r.salesamountinr || r.sales_amount_inr || 0),
       cogm: parseFloat(r.cogm || 0),
       state: r.state,
       territory: r.territory
@@ -189,16 +189,16 @@ export async function exportTransactions(req, res) {
     const rawRecords = await dbAll(querySql, finalParams);
     
     const records = rawRecords.map(r => ({
-      invoiceId: r.invoiceid,
-      date: r.date,
-      billingTypeDescription: r.billingtypedescription,
-      customerName: r.customername,
-      distributionChannel: r.distributionchannel,
+      invoiceId: r.invoiceid || r.invoice_id,
+      date: r.date || r.invoice_date,
+      billingTypeDescription: r.billingtypedescription || r.billing_desc,
+      customerName: r.customername || r.customer_name,
+      distributionChannel: r.distributionchannel || r.dist_channel,
       crop: r.crop,
       variety: r.variety,
       qty: parseInt(r.qty || 0, 10),
-      salesUnit: r.salesunit,
-      salesAmountINR: parseFloat(r.salesamountinr || 0),
+      salesUnit: r.salesunit || r.sales_unit,
+      salesAmountINR: parseFloat(r.salesamountinr || r.sales_amount_inr || 0),
       cogm: parseFloat(r.cogm || 0),
       state: r.state,
       territory: r.territory
