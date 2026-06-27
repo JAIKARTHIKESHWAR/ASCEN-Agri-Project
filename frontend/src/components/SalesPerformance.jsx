@@ -1,9 +1,24 @@
 import React, { useState } from 'react';
-import { DonutChart, LineChart, BarChart, formatCurrency } from './CustomCharts';
+import { DonutChart, LineChart, BarChart, AreaChart, HeatmapChart, WaterfallChart, TreemapChart, SunburstChart, formatCurrency } from './CustomCharts';
 
 export default function SalesPerformance({ filteredData }) {
   const [activeDiv, setActiveDiv] = useState('VG'); // 'VG' or 'FC'
   const [chartType, setChartType] = useState('line'); // 'line' or 'bar'
+  const [channelView, setChannelView] = useState('donut');
+
+  const trendModes = [
+    { key: 'line', label: 'Line' },
+    { key: 'bar', label: 'Bar' },
+    { key: 'area', label: 'Area' },
+    { key: 'heatmap', label: 'Heatmap' },
+    { key: 'waterfall', label: 'Waterfall' }
+  ];
+
+  const channelModes = [
+    { key: 'donut', label: 'Donut' },
+    { key: 'treemap', label: 'Treemap' },
+    { key: 'sunburst', label: 'Sunburst' }
+  ];
 
   // Filter data by active division
   const divData = filteredData.filter(item => item.division === activeDiv);
@@ -117,43 +132,41 @@ export default function SalesPerformance({ filteredData }) {
             </div>
             
             {/* Toggle Graph type */}
-            <div style={{ display: 'flex', gap: '4px' }}>
-              <button 
-                className="btn-page" 
-                style={{ 
-                  padding: '4px 8px', 
-                  fontSize: '0.7rem', 
-                  backgroundColor: chartType === 'line' ? 'var(--text-primary)' : 'transparent',
-                  color: chartType === 'line' ? 'var(--bg-primary)' : 'var(--text-primary)',
-                  borderColor: 'var(--border-color)',
-                  fontWeight: '600'
-                }}
-                onClick={() => setChartType('line')}
-              >
-                Line
-              </button>
-              <button 
-                className="btn-page" 
-                style={{ 
-                  padding: '4px 8px', 
-                  fontSize: '0.7rem',
-                  backgroundColor: chartType === 'bar' ? 'var(--text-primary)' : 'transparent',
-                  color: chartType === 'bar' ? 'var(--bg-primary)' : 'var(--text-primary)',
-                  borderColor: 'var(--border-color)',
-                  fontWeight: '600'
-                }}
-                onClick={() => setChartType('bar')}
-              >
-                Bar
-              </button>
+            <div style={{ 
+              display: 'flex', 
+              gap: '6px', 
+              backgroundColor: 'var(--bg-tertiary)', 
+              padding: '4px', 
+              borderRadius: '999px', 
+              border: '1px solid var(--border-color)' 
+            }}>
+              {trendModes.map((mode) => (
+                <button 
+                  key={mode.key}
+                  style={{ 
+                    padding: '4px 12px', 
+                    fontSize: '0.75rem',
+                    backgroundColor: chartType === mode.key ? 'var(--text-primary)' : 'transparent',
+                    color: chartType === mode.key ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: '999px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  onClick={() => setChartType(mode.key)}
+                >
+                  {mode.label}
+                </button>
+              ))}
             </div>
           </div>
           <div className="chart-container">
-            {chartType === 'line' ? (
-              <LineChart data={trendData} />
-            ) : (
-              <BarChart data={trendData} barColor="var(--color-sales-gross)" />
-            )}
+            {chartType === 'line' && <LineChart data={trendData} />}
+            {chartType === 'bar' && <BarChart data={trendData} barColor="var(--color-sales-gross)" />}
+            {chartType === 'area' && <AreaChart data={trendData} fillColor="var(--color-sales-gross)" />}
+            {chartType === 'heatmap' && <HeatmapChart data={trendData} />}
+            {chartType === 'waterfall' && <WaterfallChart data={trendData} />}
           </div>
         </div>
 
@@ -164,9 +177,41 @@ export default function SalesPerformance({ filteredData }) {
               <h3 className="card-title">Distribution Channels</h3>
               <p className="card-subtitle">Revenue contribution split</p>
             </div>
+            
+            {/* Toggle Graph type */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '6px', 
+              backgroundColor: 'var(--bg-tertiary)', 
+              padding: '4px', 
+              borderRadius: '999px', 
+              border: '1px solid var(--border-color)' 
+            }}>
+              {channelModes.map((mode) => (
+                <button 
+                  key={mode.key}
+                  style={{ 
+                    padding: '4px 12px', 
+                    fontSize: '0.75rem',
+                    backgroundColor: channelView === mode.key ? 'var(--text-primary)' : 'transparent',
+                    color: channelView === mode.key ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: '999px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  onClick={() => setChannelView(mode.key)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            <DonutChart data={channelChartData} />
+          <div style={{ height: '240px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+            {channelView === 'donut' && <DonutChart data={channelChartData} />}
+            {channelView === 'treemap' && <TreemapChart data={channelChartData} height={240} />}
+            {channelView === 'sunburst' && <SunburstChart data={channelChartData} height={240} />}
           </div>
         </div>
       </section>
