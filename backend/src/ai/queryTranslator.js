@@ -16,7 +16,7 @@ if (apiKey) {
   console.warn('Warning: GROQ_API_KEY is not defined in environment variables or backend/ai/.env');
 }
 
-export async function translateQuestionToPlan(question, activeFilters = {}) {
+export async function translateQuestionToPlan(question, activeFilters = {}, history = []) {
   if (!groqClient) {
     throw new Error('Groq AI Client is not configured. Please supply a valid GROQ_API_KEY.');
   }
@@ -61,6 +61,8 @@ Important Business and Join Rules:
 
 Output a strict JSON object with this exact schema:
 {
+  "out_of_scope": false,
+  "confidence": 0.95,
   "sql": "SELECT ...",
   "groupby": ["column_name_as_returned_in_sql"],
   "metric": {
@@ -70,24 +72,73 @@ Output a strict JSON object with this exact schema:
   "chart_recommendation": "bar" | "line" | "pie" | "none",
   "filters": [
     {"column": "column_name", "operator": "==" | "!=" | ">" | "<" | "in", "value": "value"}
-  ]
+  ],
+  "navigation": {
+    "intent": "show_sales_report" | "show_returns_report" | "find_highest_sales" | "other",
+    "navigateTo": "summary" | "sales" | "geography" | "product" | "returns" | "transactions",
+    "section": "sales-overview" | "division-contribution" | "top-states" | "top-crops" | "top-dealers" | "sales-by-state" | "returns-summary" | "ai-recommendations" | "monthly-trend" | "distribution-channels" | "season-contribution" | "geographic-performance" | "territory-hierarchy" | "territories-list" | "top-crops-state" | "crops-revenue" | "own-vs-trade" | "varieties-performance" | "returns-pattern" | "returns-by-channel" | "returns-by-state" | "returns-by-crop" | "transaction-drilldown",
+    "filters": {
+      "financialYear": "FY2627" | "FY2425" | null,
+      "crop": "Cotton" | "Tomato" | "Paddy" | "Maize" | ... | null,
+      "state": "Tamil Nadu" | "Karnataka" | "Andhra Pradesh" | "Telangana" | ... | null,
+      "division": "VG" | "FC" | null,
+      "distributionChannel": "Dealer" | "Distributor" | "Direct" | null
+    }
+  }
+}
+
+OR if the user question is completely unrelated to Acsen Agriscience sales, crops, states, or distribution channel statistics (e.g. general knowledge, programming, weather, generic chats, or data outside this database), output exactly this:
+{
+  "out_of_scope": true,
+  "confidence": 1.0,
+  "sql": "",
+  "groupby": [],
+  "metric": null,
+  "chart_recommendation": "none",
+  "filters": [],
+  "navigation": {
+    "intent": "other",
+    "navigateTo": "summary",
+    "section": "sales-overview",
+    "filters": {}
+  }
 }
 
 Rules:
 - Respond ONLY with the raw JSON object. Do not wrap in markdown block backticks (e.g. \`\`\`json) or include conversational text.
+- Determine a confidence score between 0.0 and 1.0. If the user's question is vague, contains spelling errors for crops/states that cannot be resolved, asks about non-existent metrics, or is otherwise ambiguous without prior context, assign a score below 0.6. Otherwise assign >= 0.8.
+- If the question is not about Acsen Agriscience sales data, crops, states, variety performance, or return rates (e.g. asking about general knowledge, programming, weather, generic chats, or agriculture statistics outside our database), you MUST set "out_of_scope" to true and return the empty JSON template above.
 - Every generated SQL query MUST query FROM sales_data (aliased as sd) and explicitly include all required JOINs (billing_types as bt, materials as m, territories as t, customers as c) if columns or classifications from those tables are referenced anywhere in the SELECT, WHERE, or GROUP BY clauses.
 - Formulate standard SQL that is fully executable in PostgreSQL. Use table aliases like 'sd', 'bt', 'm', 't', 'c' to prevent column name ambiguities.
 - Ensure column names returned in the SELECT statement match the group-by parameters exactly (e.g. SELECT t.state AS state ... GROUP BY t.state maps to "groupby": ["state"]).
 - Always use exact join key conditions: sd.billing_type = bt.billing_type, sd.material_code = m.material_code, sd.territory_id = t.territory_id, sd.customer_id = c.customer_id. Never join on c.customer_name.
 - For names (crops, states, employees, channels) use native Postgres ILIKE matching, e.g. m.crop ILIKE 'tomato' or t.state ILIKE 'tamil nadu' or c.dist_channel ILIKE 'dealer'.
+- In the navigation object:
+  1. Map navigateTo based on user's query topic (e.g., summary for overall stats, returns for return rates, product for crop-specific stats).
+  2. Map section to the specific chart/card code corresponding to the visual card (e.g. sales-overview, top-states, crops-revenue, returns-by-state).
+  3. Extract all explicit or strongly implied filters (financialYear, crop, state, division, distributionChannel). If a crop name like 'cotton' is asked, extract it. If a state like 'tamil nadu' is asked, extract it. If a year like 'FY2627' is asked, extract it. Translate year text like "FY2627" or "FY26" or "FY 26-27" to standard value "FY2627".
+  4. Ensure crop and state filter values are in proper case (e.g., "Cotton", "Tamil Nadu").
+
+
 `;
 
   try {
+    const chatMessages = [
+      { role: 'system', content: systemPrompt }
+    ];
+
+    // Append up to 5 rounds of user/assistant exchanges (last 10 messages)
+    if (history && history.length > 0) {
+      history.slice(-10).forEach(msg => {
+        const role = msg.role === 'assistant' || msg.sender === 'ai' ? 'assistant' : 'user';
+        chatMessages.push({ role, content: msg.content || msg.text });
+      });
+    }
+
+    chatMessages.push({ role: 'user', content: question + filterContext });
+
     const completion = await groqClient.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: question + filterContext }
-      ],
+      messages: chatMessages,
       model: 'llama-3.3-70b-versatile',
       response_format: { type: 'json_object' },
       temperature: 0.0

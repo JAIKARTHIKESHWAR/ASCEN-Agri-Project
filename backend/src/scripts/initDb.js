@@ -6,6 +6,13 @@ import { TABLE_SCHEMAS } from '../schema.js';
  */
 export async function initializeDatabase() {
   console.log('Verifying relational database tables...');
+
+  // Ensure pgcrypto is enabled for gen_random_uuid()
+  try {
+    await dbRun('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
+  } catch (e) {
+    console.error('Warning: could not enable pgcrypto extension:', e.message);
+  }
   
   // Get currently existing tables in PostgreSQL public schema
   const existingTablesRows = await dbAll("SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'");

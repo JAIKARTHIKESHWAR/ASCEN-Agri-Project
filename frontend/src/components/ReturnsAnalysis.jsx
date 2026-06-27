@@ -102,7 +102,7 @@ export default function ReturnsAnalysis({ filteredData }) {
       {/* Trends & Channels */}
       <section className="dashboard-grid">
         {/* Returns Trend Line */}
-        <div className="card">
+        <div id="returns-pattern" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Returns Pattern (Date)</h3>
@@ -155,7 +155,7 @@ export default function ReturnsAnalysis({ filteredData }) {
         </div>
 
         {/* Returns by Channel */}
-        <div className="card">
+        <div id="returns-by-channel" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Returns by Distribution Channel</h3>
@@ -170,7 +170,7 @@ export default function ReturnsAnalysis({ filteredData }) {
 
       <section className="dashboard-grid">
         {/* Returns by State */}
-        <div className="card">
+        <div id="returns-by-state" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Returns by State</h3>
@@ -206,7 +206,7 @@ export default function ReturnsAnalysis({ filteredData }) {
         </div>
 
         {/* Returns by Crop */}
-        <div className="card">
+        <div id="returns-by-crop" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Returns by Crop</h3>

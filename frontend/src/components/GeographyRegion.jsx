@@ -24,6 +24,13 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
     dbm: stateMap[st].dbm
   })).sort((a, b) => b.gross - a.gross);
 
+  // Auto-select state if the dataset is filtered down to a single state
+  React.useEffect(() => {
+    if (states && states.length === 1 && selectedState !== states[0].name) {
+      setSelectedState(states[0].name);
+    }
+  }, [filteredData, states]);
+
   const maxGross = states.length > 0 ? Math.max(...states.map(s => s.gross)) : 1;
 
   // If a state is selected, get its territories
@@ -77,7 +84,7 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
     <div className="page-container">
       <div className="dashboard-grid">
         {/* States List */}
-        <div className="card">
+        <div id="geographic-performance" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Geographic Performance</h3>
@@ -127,7 +134,7 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
           {selectedState ? (
             <>
               {/* Hierarchy Info */}
-              <div className="card">
+              <div id="territory-hierarchy" className="card">
                 <div className="card-header">
                   <h3 className="card-title">Hierarchy: {selectedState}</h3>
                 </div>
@@ -157,7 +164,7 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
               </div>
 
               {/* Territory Breakdown */}
-              <div className="card">
+              <div id="territories-list" className="card">
                 <div className="card-header">
                   <h3 className="card-title">Territories in {selectedState}</h3>
                 </div>
@@ -175,7 +182,7 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
               </div>
 
               {/* Crop Contribution in State */}
-              <div className="card">
+              <div id="top-crops-state" className="card">
                 <div className="card-header">
                   <h3 className="card-title">Top Crops in {selectedState}</h3>
                 </div>

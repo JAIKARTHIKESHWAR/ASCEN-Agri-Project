@@ -66,15 +66,6 @@ export default function Sidebar({ activeTab, setActiveTab, isDark, setIsDark, is
           <polyline points="10 9 9 9 8 9" />
         </svg>
       )
-    },
-    {
-      id: 'ask-ai',
-      label: 'Ask AI',
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="menu-icon">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      )
     }
   ];
 

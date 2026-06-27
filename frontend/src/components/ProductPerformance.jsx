@@ -5,6 +5,16 @@ export default function ProductPerformance({ filteredData }) {
   const [activeDiv, setActiveDiv] = useState('VG'); // 'VG' or 'FC'
   const [selectedCrop, setSelectedCrop] = useState(null);
 
+  // Auto-detect and switch division if filteredData contains items of a different division
+  React.useEffect(() => {
+    if (filteredData && filteredData.length > 0) {
+      const firstItem = filteredData[0];
+      if (firstItem.division && firstItem.division !== activeDiv) {
+        setActiveDiv(firstItem.division);
+      }
+    }
+  }, [filteredData]);
+
   // Filter data by active division
   const divData = filteredData.filter(item => item.division === activeDiv);
 
@@ -106,7 +116,7 @@ export default function ProductPerformance({ filteredData }) {
 
       <div className="dashboard-grid">
         {/* Crops List */}
-        <div className="card">
+        <div id="crops-revenue" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Crops Revenue</h3>
@@ -146,7 +156,7 @@ export default function ProductPerformance({ filteredData }) {
         </div>
 
         {/* Own vs Trade Split Card */}
-        <div className="card">
+        <div id="own-vs-trade" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Own vs Trade Splits</h3>
@@ -162,7 +172,7 @@ export default function ProductPerformance({ filteredData }) {
       {cropToQuery && (
         <section className="dashboard-grid" style={{ marginTop: '16px' }}>
           {/* Varieties & Materials breakdown */}
-          <div className="card">
+          <div id="varieties-performance" className="card">
             <div className="card-header">
               <div>
                 <h3 className="card-title">{cropToQuery} Varieties</h3>
@@ -197,7 +207,7 @@ export default function ProductPerformance({ filteredData }) {
           </div>
 
           {/* Geographic Contribution for Selected Crop */}
-          <div className="card">
+          <div id="geographic-contribution" className="card">
             <div className="card-header">
               <div>
                 <h3 className="card-title">Geographic Contribution</h3>

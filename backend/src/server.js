@@ -9,7 +9,7 @@ import { seedDatabaseIfEmpty } from './services/csvLoader.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load env variables
+// Load env variables (reloaded)
 dotenv.config({ path: join(__dirname, '..', '.env') });
 dotenv.config({ path: join(__dirname, '..', 'ai', '.env') });
 

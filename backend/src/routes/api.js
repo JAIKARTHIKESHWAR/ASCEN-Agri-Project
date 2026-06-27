@@ -15,6 +15,7 @@ import {
 import { askQuestion } from '../controllers/askController.js';
 import { uploadMiddleware, uploadCSV } from '../controllers/uploadController.js';
 import { login } from '../controllers/authController.js';
+import { bootstrapSession, newSession, getSessionHistory } from '../controllers/copilotController.js';
 
 const router = express.Router();
 
@@ -53,5 +54,10 @@ router.get('/data/quality/:batchId', getImportQuality);
 
 // 12. Authentication login Endpoint
 router.post('/auth/login', login);
+
+// 13. Copilot Stateful Session Endpoints
+router.post('/copilot/session', bootstrapSession);
+router.post('/copilot/new', newSession);
+router.get('/copilot/history/:sessionId', getSessionHistory);
 
 export default router;

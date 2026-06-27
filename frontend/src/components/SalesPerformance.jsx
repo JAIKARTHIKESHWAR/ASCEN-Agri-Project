@@ -109,7 +109,7 @@ export default function SalesPerformance({ filteredData }) {
       {/* Charts section */}
       <section className="dashboard-grid">
         {/* Sales Trend Line */}
-        <div className="card">
+        <div id="monthly-trend" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Monthly Revenue Trend</h3>
@@ -158,7 +158,7 @@ export default function SalesPerformance({ filteredData }) {
         </div>
 
         {/* Channel Contribution */}
-        <div className="card">
+        <div id="distribution-channels" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Distribution Channels</h3>
@@ -174,7 +174,7 @@ export default function SalesPerformance({ filteredData }) {
       {/* Season Code Breakdown - Only visible for FC (Field Crops) */}
       {activeDiv === 'FC' && (
         <section className="dashboard-grid">
-          <div className="card" style={{ gridColumn: 'span 2' }}>
+          <div id="season-contribution" className="card" style={{ gridColumn: 'span 2' }}>
             <div className="card-header">
               <div>
                 <h3 className="card-title">Season-wise Sales Contribution</h3>

@@ -104,5 +104,44 @@ export const TABLE_SCHEMAS = {
       was_limitation_shown BOOLEAN,
       timestamp TEXT NOT NULL
     );
+  `,
+  copilot_sessions: `
+    CREATE TABLE IF NOT EXISTS copilot_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR(255) NULL,
+      title VARCHAR(255),
+      status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+      context JSONB NOT NULL DEFAULT '{}',
+      summary TEXT,
+      total_messages INTEGER NOT NULL DEFAULT 0,
+      started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      last_activity_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `,
+  copilot_messages: `
+    CREATE TABLE IF NOT EXISTS copilot_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id UUID NOT NULL REFERENCES copilot_sessions(id) ON DELETE CASCADE,
+      role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+      content TEXT NOT NULL,
+      metadata JSONB DEFAULT '{}',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `,
+  copilot_executions: `
+    CREATE TABLE IF NOT EXISTS copilot_executions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id UUID NOT NULL REFERENCES copilot_sessions(id) ON DELETE CASCADE,
+      message_id UUID REFERENCES copilot_messages(id) ON DELETE SET NULL,
+      intent VARCHAR(100),
+      query_plan JSONB,
+      filters JSONB,
+      result_summary TEXT,
+      execution_status VARCHAR(20) DEFAULT 'success' CHECK (execution_status IN ('success', 'failed')),
+      execution_time_ms INTEGER,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
   `
 };

@@ -309,7 +309,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
       {/* Charts / Ranking grid */}
       <section className="dashboard-grid">
         {/* Sales Trend Card */}
-        <div className="card">
+        <div id="sales-overview" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Gross Sales Trend</h3>
@@ -357,7 +357,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
         </div>
 
         {/* Division Split Card */}
-        <div className="card">
+        <div id="division-contribution" className="card">
           <div className="card-header">
             <div>
               <h3 className="card-title">Division Contribution</h3>
@@ -410,7 +410,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
           marginTop: '18px'
         }}
       >
-        <div className="card" style={{ padding: '16px 20px', gap: '12px' }}>
+        <div id="top-states" className="card" style={{ padding: '16px 20px', gap: '12px' }}>
           <div className="card-header" style={{ borderBottom: 'none', paddingBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 className="card-title" style={{ fontSize: '0.85rem', fontWeight: '700', margin: 0, fontFamily: 'var(--font-heading)' }}>Top States by Sales</h3>
             <div style={{ position: 'relative' }}>
@@ -486,7 +486,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
           </div>
         </div>
 
-        <div className="card" style={{ padding: '16px 20px', gap: '12px' }}>
+        <div id="top-crops" className="card" style={{ padding: '16px 20px', gap: '12px' }}>
           <div className="card-header" style={{ borderBottom: 'none', paddingBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 className="card-title" style={{ fontSize: '0.85rem', fontWeight: '700', margin: 0, fontFamily: 'var(--font-heading)' }}>Top Crops by Sales</h3>
             <div style={{ position: 'relative' }}>
@@ -562,7 +562,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
           </div>
         </div>
 
-        <div className="card" style={{ padding: '16px 20px', gap: '12px' }}>
+        <div id="top-dealers" className="card" style={{ padding: '16px 20px', gap: '12px' }}>
           <div className="card-header" style={{ borderBottom: 'none', paddingBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 className="card-title" style={{ fontSize: '0.85rem', fontWeight: '700', margin: 0, fontFamily: 'var(--font-heading)' }}>Top Dealers by Sales</h3>
             <div style={{ position: 'relative' }}>
@@ -640,7 +640,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
       </section>
 
       <section className="dashboard-grid" style={{ gridTemplateColumns: '1.2fr 1fr 1fr', marginTop: '18px' }}>
-        <div className="card" style={{ padding: '16px 18px', gap: '12px' }}>
+        <div id="sales-by-state" className="card" style={{ padding: '16px 18px', gap: '12px' }}>
           <div className="card-header">
             <div>
               <h3 className="card-title" style={{ fontSize: '0.8rem', fontWeight: '800' }}>Sales by State</h3>
@@ -669,7 +669,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
           </div>
         </div>
 
-        <div className="card" style={{ padding: '16px 18px', gap: '12px' }}>
+        <div id="returns-summary" className="card" style={{ padding: '16px 18px', gap: '12px' }}>
           <div className="card-header">
             <div>
               <h3 className="card-title" style={{ fontSize: '0.8rem', fontWeight: '800' }}>Returns Analysis</h3>
@@ -700,7 +700,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
           </div>
         </div>
 
-        <div className="card" style={{ padding: '16px 18px', gap: '12px' }}>
+        <div id="ai-recommendations" className="card" style={{ padding: '16px 18px', gap: '12px' }}>
           <div className="card-header">
             <div>
               <h3 className="card-title" style={{ fontSize: '0.8rem', fontWeight: '800' }}>AI Recommendations</h3>
@@ -726,18 +726,6 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
             <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>+ {recommendationCards.length - 1} more recommendations hidden</div>
           )}
         </div>
-      </section>
-
-      <section className="card" style={{ marginTop: '18px', padding: '14px 18px', display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>Dataset Health</div>
-          <div style={{ marginTop: '6px', display: 'flex', gap: '18px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-primary)', fontWeight: 600 }}>Rows: {totalRows.toLocaleString('en-IN')}</span>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-primary)', fontWeight: 600 }}>Last Updated: {lastUpdated ? new Date(lastUpdated).toLocaleDateString('en-IN') : 'N/A'}</span>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-primary)', fontWeight: 600 }}>Data Source: SAP Excel Extract</span>
-          </div>
-        </div>
-        <span style={{ fontSize: '0.8rem', color: 'var(--color-sales-gross)', fontWeight: 700, cursor: 'pointer' }}>View Detailed Breakdown →</span>
       </section>
 
     </div>

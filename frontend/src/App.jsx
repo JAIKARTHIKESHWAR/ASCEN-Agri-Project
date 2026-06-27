@@ -8,6 +8,7 @@ import ProductPerformance from './components/ProductPerformance';
 import ReturnsAnalysis from './components/ReturnsAnalysis';
 import TransactionDrillDown from './components/TransactionDrillDown';
 import AskAI from './components/AskAI';
+import CopilotWidget from './components/CopilotWidget';
 import { mockSalesData, getFilteredData, calculateKPIs } from './data/mockSalesData';
 
 const INITIAL_FILTERS = {
@@ -71,8 +72,106 @@ function App() {
   const [dataset, setDataset] = useState(mockSalesData);
   const [datasetName, setDatasetName] = useState('Default SAP Mock Data');
   const [showFilters, setShowFilters] = useState(false);
+  const [activeSection, setActiveSection] = useState(null);
 
   const fileInputRef = useRef(null);
+
+  const handleCopilotResponse = (data) => {
+    if (!data) return;
+
+    // 1. Map target tab
+    const tabMap = {
+      'dashboard': 'summary',
+      'summary': 'summary',
+      'sales-performance': 'sales',
+      'sales': 'sales',
+      'geography': 'geography',
+      'product': 'product',
+      'product-performance': 'product',
+      'returns': 'returns',
+      'returns-analysis': 'returns',
+      'transactions': 'transactions'
+    };
+    
+    const targetTab = data.navigateTo ? (tabMap[data.navigateTo.toLowerCase()] || data.navigateTo.toLowerCase()) : null;
+    if (targetTab) {
+      setActiveTab(targetTab);
+    }
+
+    // 2. Map and apply filters
+    if (data.filters) {
+      const newFilters = { ...INITIAL_FILTERS };
+      const incoming = data.filters;
+
+      if (incoming.financialYear) newFilters.fy = incoming.financialYear;
+      if (incoming.crop) newFilters.crop = incoming.crop;
+      if (incoming.state) newFilters.state = incoming.state;
+      if (incoming.division) newFilters.division = incoming.division;
+      if (incoming.distributionChannel) newFilters.distributionChannel = incoming.distributionChannel;
+      if (incoming.startDate) newFilters.startDate = incoming.startDate;
+      if (incoming.endDate) newFilters.endDate = incoming.endDate;
+
+      setFilters(prev => ({
+        ...prev,
+        ...newFilters
+      }));
+    }
+
+    // 3. Set active section to trigger scroll
+    if (data.section) {
+      const sectionMap = {
+        'sales-overview': 'sales-overview',
+        'sales-trend': 'sales-overview',
+        'division-contribution': 'division-contribution',
+        'top-states': 'top-states',
+        'top-crops': 'top-crops',
+        'top-dealers': 'top-dealers',
+        'sales-by-state': 'sales-by-state',
+        'returns-summary': 'returns-summary',
+        'ai-recommendations': 'ai-recommendations',
+        'monthly-trend': 'monthly-trend',
+        'distribution-channels': 'distribution-channels',
+        'season-contribution': 'season-contribution',
+        'geographic-performance': 'geographic-performance',
+        'territory-hierarchy': 'territory-hierarchy',
+        'territories-list': 'territories-list',
+        'top-crops-state': 'top-crops-state',
+        'crops-revenue': 'crops-revenue',
+        'own-vs-trade': 'own-vs-trade',
+        'varieties-performance': 'varieties-performance',
+        'geographic-contribution': 'geographic-contribution',
+        'returns-pattern': 'returns-pattern',
+        'returns-by-channel': 'returns-by-channel',
+        'returns-by-state': 'returns-by-state',
+        'returns-by-crop': 'returns-by-crop',
+        'transaction-drilldown': 'transaction-drilldown'
+      };
+
+      const targetSectionId = sectionMap[data.section.toLowerCase()] || data.section;
+      setActiveSection(targetSectionId);
+    }
+  };
+
+  // Scroll to section and highlight
+  useEffect(() => {
+    if (activeSection) {
+      const timer = setTimeout(() => {
+        const element = document.getElementById(activeSection);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.classList.add('section-highlight');
+          
+          const clearTimer = setTimeout(() => {
+            element.classList.remove('section-highlight');
+            setActiveSection(null);
+          }, 2200);
+
+          return () => clearTimeout(clearTimer);
+        }
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [activeSection, activeTab]);
 
   // Synchronize CSS class with dark/light mode state
   useEffect(() => {
@@ -470,6 +569,10 @@ function App() {
             kpis={kpis}
           />
         )}
+        <CopilotWidget 
+          currentFilters={filters} 
+          onAIResponse={handleCopilotResponse} 
+        />
       </main>
     </div>
   );

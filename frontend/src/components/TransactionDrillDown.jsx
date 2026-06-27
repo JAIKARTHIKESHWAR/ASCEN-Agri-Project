@@ -94,7 +94,7 @@ export default function TransactionDrillDown({ filteredData }) {
 
   return (
     <div className="page-container">
-      <div className="card">
+      <div id="transaction-drilldown" className="card">
         <div className="card-header">
           <div>
             <h3 className="card-title">Transaction Drill-Down</h3>

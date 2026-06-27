@@ -13,46 +13,47 @@ export function formatCurrency(value) {
   }
 }
 
-// Hook to measure container size dynamically for responsive SVGs
-function useContainerSize(containerRef) {
-  const [size, setSize] = useState({ width: 600, height: 240 });
+// Hook to measure container size dynamically
+export function useContainerDimensions(ref) {
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    
-    const updateSize = () => {
-      const rect = containerRef.current.getBoundingClientRect();
-      setSize({
-        width: rect.width || 600,
-        height: rect.height || 240
-      });
-    };
-
-    updateSize();
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      if (!entries || entries.length === 0) return;
-      const { width, height } = entries[0].contentRect;
-      setSize({
-        width: width || 600,
-        height: height || 240
-      });
+    const getDimensions = () => ({
+      width: ref.current ? ref.current.offsetWidth : 0,
+      height: ref.current ? ref.current.offsetHeight : 0
     });
 
-    resizeObserver.observe(containerRef.current);
-    window.addEventListener('resize', updateSize);
+    const handleResize = () => {
+      setDimensions(getDimensions());
+    };
+
+    if (ref.current) {
+      setDimensions(getDimensions());
+    }
+
+    window.addEventListener('resize', handleResize);
+
+    let resizeObserver;
+    if (ref.current && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      resizeObserver.observe(ref.current);
+    }
 
     return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', updateSize);
+      window.removeEventListener('resize', handleResize);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
     };
-  }, [containerRef]);
+  }, [ref]);
 
-  return size;
+  return dimensions;
 }
 
 // 1. Donut Chart Component
-export function DonutChart({ data, title, height = 240 }) {
+export function DonutChart({ data, title }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
@@ -76,9 +77,9 @@ export function DonutChart({ data, title, height = 240 }) {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: '100%', height: `${height}px`, gap: '20px', flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', height: '180px', width: '180px', flexShrink: 0 }}>
-        <svg viewBox="0 0 180 180" style={{ width: '180px', height: '180px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', width: '100%', maxWidth: '140px' }}>
+        <svg viewBox="0 0 180 180" style={{ width: '100%', height: 'auto', display: 'block' }}>
           <circle
             cx={center}
             cy={center}
@@ -118,7 +119,7 @@ export function DonutChart({ data, title, height = 240 }) {
               />
             );
           })}
-          
+
           {/* Middle Text */}
           <text
             x={center}
@@ -151,51 +152,49 @@ export function DonutChart({ data, title, height = 240 }) {
         </svg>
       </div>
 
-      <div style={{ minWidth: '180px', flex: 1, maxWidth: '240px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-              <th style={{ padding: '4px 6px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Division</th>
-              <th style={{ padding: '4px 6px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Per %</th>
-              <th style={{ padding: '4px 6px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Currency</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((item, idx) => {
-              if (item.value === 0) return null;
-              const percentage = ((item.value / total) * 100).toFixed(1);
-              const color = colors[idx % colors.length];
-              const isHovered = hoveredIdx === idx;
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '0.8rem' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Division</th>
+            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Per %</th>
+            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Currency</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((item, idx) => {
+            if (item.value === 0) return null;
+            const percentage = ((item.value / total) * 100).toFixed(1);
+            const color = colors[idx % colors.length];
+            const isHovered = hoveredIdx === idx;
 
-              return (
-                <tr
-                  key={item.label}
-                  style={{
-                    backgroundColor: isHovered ? 'var(--bg-hover)' : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'background-color var(--transition-fast)',
-                  }}
-                  onMouseEnter={() => setHoveredIdx(idx)}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                >
-                  <td style={{ padding: '6px 6px', display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid var(--border-color)' }}>
-                    <span className="legend-color" style={{ backgroundColor: color, display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', flexShrink: 0 }} />
-                    <span style={{ color: 'var(--text-primary)', fontWeight: isHovered ? '600' : '400' }}>
-                      {item.label}
-                    </span>
-                  </td>
-                  <td style={{ padding: '6px 6px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: '500', borderBottom: '1px solid var(--border-color)' }}>
-                    {percentage}%
-                  </td>
-                  <td style={{ padding: '6px 6px', textAlign: 'right', fontWeight: '600', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                    {formatCurrency(item.value)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+            return (
+              <tr
+                key={item.label}
+                style={{
+                  backgroundColor: isHovered ? 'var(--bg-hover)' : 'transparent',
+                  cursor: 'pointer',
+                  transition: 'background-color var(--transition-fast)',
+                }}
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+              >
+                <td style={{ padding: '5px 8px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)' }}>
+                  <span className="legend-color" style={{ backgroundColor: color, display: 'inline-block', width: '10px', height: '10px', borderRadius: '2px', flexShrink: 0 }} />
+                  <span style={{ color: 'var(--text-primary)', fontWeight: isHovered ? '600' : '400' }}>
+                    {item.label}
+                  </span>
+                </td>
+                <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: '500', borderBottom: '1px solid var(--border-color)' }}>
+                  {percentage}%
+                </td>
+                <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '600', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
+                  {formatCurrency(item.value)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -205,20 +204,22 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0 });
   const containerRef = useRef(null);
+  const dimensions = useContainerDimensions(containerRef);
 
   if (!data || data.length === 0) {
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
   }
+
+  const width = dimensions.width || 600;
+  const viewHeight = dimensions.height || height;
 
   const paddingLeft = 60;
   const paddingRight = 20;
   const paddingTop = 20;
   const paddingBottom = 40;
 
-  const { width, height: viewHeight } = useContainerSize(containerRef);
-
-  const xMax = width - paddingLeft - paddingRight;
-  const yMax = viewHeight - paddingTop - paddingBottom;
+  const xMax = Math.max(width - paddingLeft - paddingRight, 10);
+  const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
 
   const yValues = data.map(d => d[yKey]);
   const maxYVal = Math.max(...yValues, 1000) * 1.1; // Add 10% headroom
@@ -235,11 +236,11 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
     return index === 0 ? `M ${point.x} ${point.y}` : `${acc} L ${point.x} ${point.y}`;
   }, '');
 
-  const areaD = points.length > 0 
+  const areaD = points.length > 0
     ? `${pathD} L ${points[points.length - 1].x} ${paddingTop + yMax} L ${points[0].x} ${paddingTop + yMax} Z`
     : '';
 
-  // Handle tooltip sizing and positioning relative to container bounding client rect
+  // Handle tooltip sizing and positioning
   const handlePointHover = (event, point, index) => {
     setHoveredIdx(index);
     setTooltip({
@@ -266,8 +267,8 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
   }
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: `${height}px` }}>
-      <svg viewBox={`0 0 ${width} ${viewHeight}`} className="chart-svg" style={{ width: '100%', height: '100%' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
+      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
         {/* Grid lines */}
         {gridLines.map((line, i) => (
           <g key={i}>
@@ -395,20 +396,22 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0 });
   const containerRef = useRef(null);
+  const dimensions = useContainerDimensions(containerRef);
 
   if (!data || data.length === 0) {
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No comparison data available</div>;
   }
+
+  const width = dimensions.width || 600;
+  const viewHeight = dimensions.height || height;
 
   const paddingLeft = 60;
   const paddingRight = 20;
   const paddingTop = 20;
   const paddingBottom = 40;
 
-  const { width, height: viewHeight } = useContainerSize(containerRef);
-
-  const xMax = width - paddingLeft - paddingRight;
-  const yMax = viewHeight - paddingTop - paddingBottom;
+  const xMax = Math.max(width - paddingLeft - paddingRight, 10);
+  const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
 
   const yValues = data.map(d => d[yKey]);
   const maxYVal = Math.max(...yValues, 100) * 1.1; // Add 10% headroom
@@ -446,8 +449,8 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
   }
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: `${height}px` }}>
-      <svg viewBox={`0 0 ${width} ${viewHeight}`} className="chart-svg" style={{ width: '100%', height: '100%' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
+      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
         {/* Grid lines */}
         {gridLines.map((line, i) => (
           <g key={i}>
@@ -561,19 +564,22 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0 });
   const containerRef = useRef(null);
+  const dimensions = useContainerDimensions(containerRef);
 
   if (!data || data.length === 0) {
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
   }
 
+  const width = dimensions.width || 600;
+  const viewHeight = dimensions.height || height;
+
   const paddingLeft = 60;
   const paddingRight = 20;
   const paddingTop = 20;
   const paddingBottom = 40;
-  const { width, height: viewHeight } = useContainerSize(containerRef);
 
-  const xMax = width - paddingLeft - paddingRight;
-  const yMax = viewHeight - paddingTop - paddingBottom;
+  const xMax = Math.max(width - paddingLeft - paddingRight, 10);
+  const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
   const yValues = data.map(d => d[yKey]);
   const maxYVal = Math.max(...yValues, 1000) * 1.1;
   const minYVal = 0;
@@ -615,8 +621,8 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
   };
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: `${height}px` }}>
-      <svg viewBox={`0 0 ${width} ${viewHeight}`} className="chart-svg" style={{ width: '100%', height: '100%' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
+      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
         {gridLines.map((line, i) => (
           <g key={i}>
             <line x1={paddingLeft} y1={line.y} x2={width - paddingRight} y2={line.y} className="chart-grid-line" />
@@ -750,18 +756,22 @@ export function HeatmapChart({ data, xKey = 'label', yKey = 'value', height = 24
 
 // 6. Waterfall Chart Component
 export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 240, accentColor = 'var(--color-sales-gross)' }) {
+  const containerRef = useRef(null);
+  const dimensions = useContainerDimensions(containerRef);
+
   if (!data || data.length === 0) {
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
   }
 
-  const containerRef = useRef(null);
-  const { width, height: viewHeight } = useContainerSize(containerRef);
+  const width = dimensions.width || 600;
+  const viewHeight = dimensions.height || height;
+
   const paddingLeft = 55;
   const paddingRight = 24;
   const paddingTop = 24;
   const paddingBottom = 44;
-  const xMax = width - paddingLeft - paddingRight;
-  const yMax = viewHeight - paddingTop - paddingBottom;
+  const xMax = Math.max(width - paddingLeft - paddingRight, 10);
+  const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
 
   const values = data.map(item => item[yKey]);
   const total = values.reduce((sum, value) => sum + value, 0);
@@ -788,8 +798,8 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
   const scaleY = (value) => paddingTop + yMax - (value / maxValue) * yMax;
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: `${height}px` }}>
-      <svg viewBox={`0 0 ${width} ${viewHeight}`} className="chart-svg" style={{ width: '100%', height: '100%' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
+      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
         <line x1={paddingLeft} y1={paddingTop + yMax} x2={width - paddingRight} y2={paddingTop + yMax} className="chart-axis-line" />
         <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={paddingTop + yMax} className="chart-axis-line" />
 
@@ -858,7 +868,7 @@ export function TreemapChart({ data, height = 240 }) {
   });
 
   return (
-    <div style={{ width: '100%', height: `${height}px`, display: 'flex', gap: '10px', minHeight: `${height}px` }}>
+    <div style={{ width: '100%', height: '100%', display: 'flex', gap: '10px', minHeight: `${height}px`, flex: 1 }}>
       {data.map((item, index) => {
         const rect = rects[index];
         return (
@@ -905,8 +915,8 @@ export function SunburstChart({ data, height = 240 }) {
   let currentOffset = 0;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: `${height}px`, gap: '20px', flexWrap: 'wrap' }}>
-      <svg viewBox="0 0 200 200" style={{ width: '200px', height: '200px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '16px', flexWrap: 'wrap' }}>
+      <svg viewBox="0 0 200 200" style={{ width: '140px', height: '140px', display: 'block' }}>
         <circle cx={center} cy={center} r={radius} fill="transparent" stroke="var(--bg-tertiary)" strokeWidth={strokeWidth} />
         {data.map((item, index) => {
           const value = item.value || 0;
