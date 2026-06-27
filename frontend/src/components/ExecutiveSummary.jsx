@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { DonutChart, LineChart, BarChart, AreaChart, HeatmapChart, WaterfallChart, TreemapChart, SunburstChart, formatCurrency } from './CustomCharts';
 
-export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
+export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, chartPreferences = {}, setChartPreferences = () => {} }) {
   const [chartType, setChartType] = useState('line'); // 'line' or 'bar'
   const [divisionView, setDivisionView] = useState('donut');
+
+  const activeSalesChart = chartPreferences['sales-overview'] || chartType;
+  const activeDivisionView = chartPreferences['division-contribution'] || divisionView;
   const [returnsChartType, setReturnsChartType] = useState('bar');
   const [statesLimit, setStatesLimit] = useState(5);
   const [cropsLimit, setCropsLimit] = useState(5);
@@ -348,11 +351,11 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
           </div>
 
           <div className="chart-container">
-            {chartType === 'line' && <LineChart data={trendData} />}
-            {chartType === 'bar' && <BarChart data={trendData} barColor="var(--color-sales-gross)" />}
-            {chartType === 'area' && <AreaChart data={trendData} fillColor="var(--color-sales-gross)" />}
-            {chartType === 'heatmap' && <HeatmapChart data={trendData} />}
-            {chartType === 'waterfall' && <WaterfallChart data={trendData} />}
+            {activeSalesChart === 'line' && <LineChart data={trendData} />}
+            {activeSalesChart === 'bar' && <BarChart data={trendData} barColor="var(--color-sales-gross)" />}
+            {activeSalesChart === 'area' && <AreaChart data={trendData} fillColor="var(--color-sales-gross)" />}
+            {activeSalesChart === 'heatmap' && <HeatmapChart data={trendData} />}
+            {activeSalesChart === 'waterfall' && <WaterfallChart data={trendData} />}
           </div>
         </div>
 
@@ -395,9 +398,11 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab }) {
             </div>
           </div>
           <div style={{ height: '240px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-            {divisionView === 'donut' && <DonutChart data={divisionData} height={240} />}
-            {divisionView === 'treemap' && <TreemapChart data={divisionData} height={240} />}
-            {divisionView === 'sunburst' && <SunburstChart data={divisionData} height={240} />}
+            {activeDivisionView === 'donut' && <DonutChart data={divisionData} height={240} />}
+            {activeDivisionView === 'pie' && <DonutChart data={divisionData} height={240} />}
+            {activeDivisionView === 'treemap' && <TreemapChart data={divisionData} height={240} />}
+            {activeDivisionView === 'sunburst' && <SunburstChart data={divisionData} height={240} />}
+            {activeDivisionView === 'bar' && <BarChart data={divisionData.map(d => ({ label: d.label, value: d.value }))} height={240} barColor="var(--color-sales-gross)" />}
           </div>
         </div>
       </section>

@@ -16,6 +16,7 @@ import { askQuestion } from '../controllers/askController.js';
 import { uploadMiddleware, uploadCSV } from '../controllers/uploadController.js';
 import { login } from '../controllers/authController.js';
 import { bootstrapSession, newSession, getSessionHistory } from '../controllers/copilotController.js';
+import { transcribeAndProcessVoice } from '../controllers/voiceController.js';
 
 const router = express.Router();
 
@@ -59,5 +60,6 @@ router.post('/auth/login', login);
 router.post('/copilot/session', bootstrapSession);
 router.post('/copilot/new', newSession);
 router.get('/copilot/history/:sessionId', getSessionHistory);
+router.post('/copilot/voice', uploadMiddleware, transcribeAndProcessVoice);
 
 export default router;

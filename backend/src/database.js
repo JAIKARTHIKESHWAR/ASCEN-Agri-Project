@@ -23,6 +23,13 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000 // Return error if connection takes > 2 seconds
 });
 
+// Configure connection encoding to support UTF8 characters (e.g. ₹ symbol) on Win1252 Windows server locales
+pool.on('connect', (client) => {
+  client.query("SET client_encoding TO 'UTF8'").catch(err => {
+    console.error('Failed to set client encoding to UTF8:', err.message);
+  });
+});
+
 // Test connection on startup
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {

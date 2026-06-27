@@ -73,6 +73,7 @@ function App() {
   const [datasetName, setDatasetName] = useState('Default SAP Mock Data');
   const [showFilters, setShowFilters] = useState(false);
   const [activeSection, setActiveSection] = useState(null);
+  const [chartPreferences, setChartPreferences] = useState({});
 
   const fileInputRef = useRef(null);
 
@@ -149,6 +150,24 @@ function App() {
 
       const targetSectionId = sectionMap[data.section.toLowerCase()] || data.section;
       setActiveSection(targetSectionId);
+    }
+
+    // 4. Update chart visualization preferences from database or user request
+    if (data.chartPreferences) {
+      setChartPreferences(data.chartPreferences);
+    } else if (data.visualization && data.visualization.type && data.section) {
+      setChartPreferences(prev => ({
+        ...prev,
+        [data.section]: data.visualization.type
+      }));
+    }
+
+    if (data.intent === 'reset_visualization' && data.section) {
+      setChartPreferences(prev => {
+        const next = { ...prev };
+        delete next[data.section];
+        return next;
+      });
     }
   };
 
@@ -525,12 +544,16 @@ function App() {
             filteredData={filteredData}
             kpis={kpis}
             setActiveTab={setActiveTab}
+            chartPreferences={chartPreferences}
+            setChartPreferences={setChartPreferences}
           />
         )}
 
         {activeTab === 'sales' && (
           <SalesPerformance
             filteredData={filteredData}
+            chartPreferences={chartPreferences}
+            setChartPreferences={setChartPreferences}
           />
         )}
 
@@ -539,18 +562,24 @@ function App() {
             filteredData={filteredData}
             setFilters={setFilters}
             setActiveTab={setActiveTab}
+            chartPreferences={chartPreferences}
+            setChartPreferences={setChartPreferences}
           />
         )}
 
         {activeTab === 'product' && (
           <ProductPerformance
             filteredData={filteredData}
+            chartPreferences={chartPreferences}
+            setChartPreferences={setChartPreferences}
           />
         )}
 
         {activeTab === 'returns' && (
           <ReturnsAnalysis
             filteredData={filteredData}
+            chartPreferences={chartPreferences}
+            setChartPreferences={setChartPreferences}
           />
         )}
 

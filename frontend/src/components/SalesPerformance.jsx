@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { DonutChart, LineChart, BarChart, formatCurrency } from './CustomCharts';
+import { DonutChart, LineChart, BarChart, AreaChart, HeatmapChart, WaterfallChart, TreemapChart, SunburstChart, formatCurrency } from './CustomCharts';
 
-export default function SalesPerformance({ filteredData }) {
+export default function SalesPerformance({ filteredData, chartPreferences = {}, setChartPreferences = () => {} }) {
   const [activeDiv, setActiveDiv] = useState('VG'); // 'VG' or 'FC'
   const [chartType, setChartType] = useState('line'); // 'line' or 'bar'
+
+  const activeTrendChart = chartPreferences['monthly-trend'] || chartType;
+  const activeChannelChart = chartPreferences['distribution-channels'] || 'donut';
 
   // Filter data by active division
   const divData = filteredData.filter(item => item.division === activeDiv);
@@ -149,11 +152,11 @@ export default function SalesPerformance({ filteredData }) {
             </div>
           </div>
           <div className="chart-container">
-            {chartType === 'line' ? (
-              <LineChart data={trendData} />
-            ) : (
-              <BarChart data={trendData} barColor="var(--color-sales-gross)" />
-            )}
+            {activeTrendChart === 'line' && <LineChart data={trendData} />}
+            {activeTrendChart === 'bar' && <BarChart data={trendData} barColor="var(--color-sales-gross)" />}
+            {activeTrendChart === 'area' && <AreaChart data={trendData} fillColor="var(--color-sales-gross)" />}
+            {activeTrendChart === 'heatmap' && <HeatmapChart data={trendData} />}
+            {activeTrendChart === 'waterfall' && <WaterfallChart data={trendData} />}
           </div>
         </div>
 
@@ -165,8 +168,11 @@ export default function SalesPerformance({ filteredData }) {
               <p className="card-subtitle">Revenue contribution split</p>
             </div>
           </div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            <DonutChart data={channelChartData} />
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: '240px' }}>
+            {(activeChannelChart === 'donut' || activeChannelChart === 'pie') && <DonutChart data={channelChartData} />}
+            {activeChannelChart === 'treemap' && <TreemapChart data={channelChartData} height={240} />}
+            {activeChannelChart === 'sunburst' && <SunburstChart data={channelChartData} height={240} />}
+            {activeChannelChart === 'bar' && <BarChart data={channelChartData.map(d => ({ label: d.label, value: d.value }))} height={240} barColor="var(--color-sales-gross)" />}
           </div>
         </div>
       </section>

@@ -21,13 +21,18 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
     }
   ]);
 
+  // Voice recording states
+  const [voiceState, setVoiceState] = useState('idle'); // 'idle' | 'listening' | 'uploading' | 'transcribing' | 'thinking' | 'completed' | 'failed'
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Bootstrap session and restore history/filters on mount
+  // Bootstrap session and restore history/filters/preferences on mount
   useEffect(() => {
     const initSession = async () => {
       const storedSessionId = localStorage.getItem('copilot_session_id');
@@ -54,11 +59,12 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
               // Restore dashboard filters/views from historical context
               if (histData.session && histData.session.context) {
                 const ctx = histData.session.context;
-                if (onAIResponse && ctx.filters) {
+                if (onAIResponse) {
                   onAIResponse({
-                    filters: ctx.filters,
-                    navigateTo: ctx.lastTab,
-                    section: ctx.lastSection
+                    filters: ctx.filters || {},
+                    navigateTo: ctx.lastTab || 'summary',
+                    section: ctx.lastSection || 'sales-overview',
+                    chartPreferences: ctx.chartPreferences || {}
                   });
                 }
               }
@@ -145,6 +151,123 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
     }
   };
 
+  // Voice recording logic
+  const startRecording = async () => {
+    try {
+      setVoiceState('listening');
+      audioChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        // Stop audio tracks to release microphone
+        stream.getTracks().forEach(track => track.stop());
+
+        if (audioBlob.size < 2000) {
+          setVoiceState('failed');
+          alert('Audio recording is too short or invalid. Please speak clearly.');
+          setTimeout(() => setVoiceState('idle'), 2000);
+          return;
+        }
+
+        await sendAudioPayload(audioBlob);
+      };
+
+      mediaRecorder.start();
+    } catch (err) {
+      console.error('Mic initialization or recording start error:', err);
+      setVoiceState('failed');
+      alert(`Could not start voice recording: ${err.message || 'Please check microphone permission.'}`);
+      setTimeout(() => setVoiceState('idle'), 2000);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const sendAudioPayload = async (audioBlob) => {
+    setVoiceState('uploading');
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'voice_query.wav');
+      formData.append('session_id', sessionId || '');
+      
+      // Load current filters context
+      const requestFilters = {};
+      if (currentFilters) {
+        if (currentFilters.fy) requestFilters.fy_code = currentFilters.fy;
+        if (currentFilters.division) requestFilters.division = currentFilters.division;
+        if (currentFilters.distributionChannel) requestFilters.dist_channel = currentFilters.distributionChannel;
+        if (currentFilters.state) requestFilters.state = currentFilters.state;
+        if (currentFilters.crop) requestFilters.crop = currentFilters.crop;
+        if (currentFilters.startDate) requestFilters.start_date = currentFilters.startDate;
+        if (currentFilters.endDate) requestFilters.end_date = currentFilters.endDate;
+      }
+      formData.append('filters', JSON.stringify(requestFilters));
+
+      setVoiceState('transcribing');
+      const response = await fetch('/api/copilot/voice', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || `Voice upload endpoint failed with status: ${response.status}`);
+      }
+
+      setVoiceState('thinking');
+      const data = await response.json();
+
+      const userTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      const aiTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+      // Add user transcript message
+      setMessages(prev => [...prev, {
+        sender: 'user',
+        text: data.transcript,
+        timestamp: userTime
+      }]);
+
+      // Add AI reply message
+      setMessages(prev => [...prev, {
+        sender: 'ai',
+        text: data.insights || data.answer,
+        timestamp: aiTime,
+        navNotice: data.navigateTo ? `Navigated to ${data.navigateTo} (${data.section})` : null
+      }]);
+
+      setVoiceState('completed');
+      setTimeout(() => setVoiceState('idle'), 1000);
+
+      // Trigger navigation, filters, and dynamic visualization preference updates
+      if (onAIResponse) {
+        onAIResponse(data);
+      }
+    } catch (err) {
+      console.error('Error handling voice transcription / query pipeline:', err);
+      setVoiceState('failed');
+      const errTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      setMessages(prev => [...prev, {
+        sender: 'ai',
+        text: `Voice Processing Error: ${err.message}. Please speak clearly and check your connection.`,
+        timestamp: errTime
+      }]);
+      setTimeout(() => setVoiceState('idle'), 3000);
+    }
+  };
+
   const handleNewChat = async () => {
     try {
       setIsTyping(true);
@@ -174,7 +297,8 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
           onAIResponse({
             filters: {},
             navigateTo: 'summary',
-            section: 'sales-overview'
+            section: 'sales-overview',
+            chartPreferences: {}
           });
         }
       }
@@ -286,7 +410,7 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                         {msg.text}
                         {msg.navNotice && (
                           <div style={{ marginTop: '8px', fontSize: '0.7rem', fontStyle: 'italic', color: 'var(--color-sales-net)', fontWeight: 'bold' }}>
-                            ⚡ {msg.navNotice}
+
                           </div>
                         )}
                       </div>
@@ -324,22 +448,65 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                 </div>
               </div>
 
+              {/* Microphone & Voice Status Bar */}
+              {voiceState !== 'idle' && (
+                <div style={{ padding: '6px 14px', fontSize: '0.7rem', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: voiceState === 'failed' ? '#ef4444' : '#10b981', animation: voiceState === 'listening' || voiceState === 'transcribing' || voiceState === 'thinking' ? 'pulse 1s infinite' : 'none' }} />
+                  <span style={{ fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{voiceState}...</span>
+                </div>
+              )}
+
               {/* Text Area Inputs */}
               <div className="copilot-input-area">
                 <div className="copilot-input-inner">
+                  {/* Microphone Button */}
+                  <button
+                    className={`copilot-btn-mic ${voiceState === 'listening' ? 'recording' : ''}`}
+                    onClick={voiceState === 'listening' ? stopRecording : startRecording}
+                    title={voiceState === 'listening' ? "Click to stop recording" : "Click to speak query"}
+                    type="button"
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '8px',
+                      color: voiceState === 'listening' ? '#ef4444' : 'var(--text-secondary)',
+                      transition: 'all var(--transition-fast)',
+                      borderRadius: '50%',
+                      backgroundColor: voiceState === 'listening' ? 'var(--bg-tertiary)' : 'transparent',
+                    }}
+                  >
+                    {voiceState === 'listening' ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 15, height: 15, animation: 'pulse 1s infinite' }}>
+                        <circle cx="12" cy="12" r="10" fill="#ef4444" opacity="0.3"></circle>
+                        <circle cx="12" cy="12" r="4" fill="#ef4444"></circle>
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 15, height: 15 }}>
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="23"></line>
+                        <line x1="8" y1="23" x2="16" y2="23"></line>
+                      </svg>
+                    )}
+                  </button>
+
                   <input
                     type="text"
                     className="copilot-textbox"
-                    placeholder="Ask Copilot to analyze or navigate..."
+                    placeholder={voiceState === 'listening' ? "Listening speech..." : "Ask Copilot to analyze or navigate..."}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    disabled={isTyping}
+                    disabled={isTyping || voiceState === 'listening'}
                   />
                   <button
                     className="copilot-btn-send"
                     onClick={() => handleSend(input)}
-                    disabled={!input.trim() || isTyping}
+                    disabled={!input.trim() || isTyping || voiceState === 'listening'}
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
                       <line x1="22" y1="2" x2="11" y2="13"></line>

@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { DonutChart, LineChart, BarChart, formatCurrency } from './CustomCharts';
+import { DonutChart, LineChart, BarChart, AreaChart, HeatmapChart, WaterfallChart, TreemapChart, SunburstChart, formatCurrency } from './CustomCharts';
 
-export default function ReturnsAnalysis({ filteredData }) {
+export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, setChartPreferences = () => {} }) {
   const [chartType, setChartType] = useState('line'); // 'line' or 'bar'
+
+  const activeReturnsChart = chartPreferences['returns-pattern'] || chartType;
+  const activeChannelReturnsChart = chartPreferences['returns-by-channel'] || 'donut';
 
   // Aggregate Gross Sales and Returns
   let grossSales = 0;
@@ -143,11 +146,13 @@ export default function ReturnsAnalysis({ filteredData }) {
           </div>
           <div className="chart-container">
             {returnsTrendData.length > 0 ? (
-              chartType === 'line' ? (
-                <LineChart data={returnsTrendData} />
-              ) : (
-                <BarChart data={returnsTrendData} barColor="var(--color-returns)" />
-              )
+              <>
+                {activeReturnsChart === 'line' && <LineChart data={returnsTrendData} />}
+                {activeReturnsChart === 'bar' && <BarChart data={returnsTrendData} barColor="var(--color-returns)" />}
+                {activeReturnsChart === 'area' && <AreaChart data={returnsTrendData} fillColor="var(--color-returns)" />}
+                {activeReturnsChart === 'heatmap' && <HeatmapChart data={returnsTrendData} />}
+                {activeReturnsChart === 'waterfall' && <WaterfallChart data={returnsTrendData} />}
+              </>
             ) : (
               <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No returns in the selected timeframe</div>
             )}
@@ -162,8 +167,11 @@ export default function ReturnsAnalysis({ filteredData }) {
               <p className="card-subtitle">Return value share by channel</p>
             </div>
           </div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            <DonutChart data={channelReturnsData} />
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: '240px' }}>
+            {(activeChannelReturnsChart === 'donut' || activeChannelReturnsChart === 'pie') && <DonutChart data={channelReturnsData} />}
+            {activeChannelReturnsChart === 'treemap' && <TreemapChart data={channelReturnsData} height={240} />}
+            {activeChannelReturnsChart === 'sunburst' && <SunburstChart data={channelReturnsData} height={240} />}
+            {activeChannelReturnsChart === 'bar' && <BarChart data={channelReturnsData.map(d => ({ label: d.label, value: d.value }))} height={240} barColor="var(--color-returns)" />}
           </div>
         </div>
       </section>

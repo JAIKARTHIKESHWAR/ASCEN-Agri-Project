@@ -70,11 +70,14 @@ Output a strict JSON object with this exact schema:
     "aggregation": "sum" | "avg" | "count"
   },
   "chart_recommendation": "bar" | "line" | "pie" | "none",
+  "visualization": {
+    "type": "line" | "bar" | "pie" | "area" | "treemap" | "donut" | "scatter" | "stacked_bar" | "horizontal_bar" | null
+  },
   "filters": [
     {"column": "column_name", "operator": "==" | "!=" | ">" | "<" | "in", "value": "value"}
   ],
   "navigation": {
-    "intent": "show_sales_report" | "show_returns_report" | "find_highest_sales" | "other",
+    "intent": "show_sales_report" | "show_returns_report" | "find_highest_sales" | "change_visualization" | "reset_visualization" | "other",
     "navigateTo": "summary" | "sales" | "geography" | "product" | "returns" | "transactions",
     "section": "sales-overview" | "division-contribution" | "top-states" | "top-crops" | "top-dealers" | "sales-by-state" | "returns-summary" | "ai-recommendations" | "monthly-trend" | "distribution-channels" | "season-contribution" | "geographic-performance" | "territory-hierarchy" | "territories-list" | "top-crops-state" | "crops-revenue" | "own-vs-trade" | "varieties-performance" | "returns-pattern" | "returns-by-channel" | "returns-by-state" | "returns-by-crop" | "transaction-drilldown",
     "filters": {
@@ -95,6 +98,7 @@ OR if the user question is completely unrelated to Acsen Agriscience sales, crop
   "groupby": [],
   "metric": null,
   "chart_recommendation": "none",
+  "visualization": null,
   "filters": [],
   "navigation": {
     "intent": "other",
@@ -106,6 +110,7 @@ OR if the user question is completely unrelated to Acsen Agriscience sales, crop
 
 Rules:
 - Respond ONLY with the raw JSON object. Do not wrap in markdown block backticks (e.g. \`\`\`json) or include conversational text.
+- If the user explicitly asks to view, format, or convert a chart/visualization (e.g., "convert to a pie chart", "show division contribution as horizontal bar", "visualize as area chart", "reset chart"), set "visualization" to {"type": "<type>"} with type being one of: "line", "bar", "pie", "area", "treemap", "donut", "scatter", "stacked_bar", "horizontal_bar" (or null if resetting/default), set navigation.intent to "change_visualization" (or "reset_visualization" if resetting), and set navigation.section to the target visual card being converted. Use standard SQL to query the data if needed.
 - Determine a confidence score between 0.0 and 1.0. If the user's question is vague, contains spelling errors for crops/states that cannot be resolved, asks about non-existent metrics, or is otherwise ambiguous without prior context, assign a score below 0.6. Otherwise assign >= 0.8.
 - If the question is not about Acsen Agriscience sales data, crops, states, variety performance, or return rates (e.g. asking about general knowledge, programming, weather, generic chats, or agriculture statistics outside our database), you MUST set "out_of_scope" to true and return the empty JSON template above.
 - Every generated SQL query MUST query FROM sales_data (aliased as sd) and explicitly include all required JOINs (billing_types as bt, materials as m, territories as t, customers as c) if columns or classifications from those tables are referenced anywhere in the SELECT, WHERE, or GROUP BY clauses.
