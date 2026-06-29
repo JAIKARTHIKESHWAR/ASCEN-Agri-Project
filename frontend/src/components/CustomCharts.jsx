@@ -61,7 +61,18 @@ export function useContainerDimensions(ref) {
 // 1. Donut Chart Component
 export const DonutChart = React.memo(function DonutChart({ data, title }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
-  const total = data.reduce((sum, item) => sum + item.value, 0);
+
+  const isComparison = Array.isArray(data) && data.some(d => d.primaryValue !== undefined || d.comparisonValue !== undefined);
+
+  const chartData = useMemo(() => {
+    if (!isComparison) return data;
+    return data.map(d => ({
+      ...d,
+      value: d.primaryValue ?? 0
+    }));
+  }, [data, isComparison]);
+
+  const total = chartData.reduce((sum, item) => sum + item.value, 0);
 
   const radius = 60;
   const strokeWidth = 18;
@@ -82,6 +93,11 @@ export const DonutChart = React.memo(function DonutChart({ data, title }) {
     '#d97706'
   ];
 
+  const getGrowth = (p, c) => {
+    if (!c) return null;
+    return (((p - c) / c) * 100).toFixed(1);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', alignItems: 'center', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', width: '100%', maxWidth: '140px' }}>
@@ -94,7 +110,7 @@ export const DonutChart = React.memo(function DonutChart({ data, title }) {
             stroke="var(--bg-primary)"
             strokeWidth={strokeWidth}
           />
-          {data.map((item, idx) => {
+          {chartData.map((item, idx) => {
             if (item.value === 0) return null;
             const percentage = item.value / total;
             const strokeLength = percentage * circumference;
@@ -139,7 +155,7 @@ export const DonutChart = React.memo(function DonutChart({ data, title }) {
               fontWeight: '600'
             }}
           >
-            {hoveredIdx !== null ? data[hoveredIdx].label : 'Total'}
+            {hoveredIdx !== null ? chartData[hoveredIdx].label : 'Total'}
           </text>
           <text
             x={center}
@@ -153,7 +169,7 @@ export const DonutChart = React.memo(function DonutChart({ data, title }) {
               fontWeight: '700'
             }}
           >
-            {formatCurrency(hoveredIdx !== null ? data[hoveredIdx].value : total)}
+            {formatCurrency(hoveredIdx !== null ? chartData[hoveredIdx].value : total)}
           </text>
         </svg>
       </div>
@@ -162,14 +178,25 @@ export const DonutChart = React.memo(function DonutChart({ data, title }) {
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
             <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Division</th>
-            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Per %</th>
-            <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Currency</th>
+            {isComparison ? (
+              <>
+                <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Primary</th>
+                <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Compare</th>
+                <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Growth</th>
+              </>
+            ) : (
+              <>
+                <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Per %</th>
+                <th style={{ padding: '6px 8px', fontWeight: '600', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Currency</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
           {data.map((item, idx) => {
-            if (item.value === 0) return null;
-            const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : 0;
+            const val = isComparison ? (item.primaryValue ?? 0) : item.value;
+            if (val === 0 && !isComparison) return null;
+            const percentage = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
             const color = colors[idx % colors.length];
             const isHovered = hoveredIdx === idx;
 
@@ -190,12 +217,34 @@ export const DonutChart = React.memo(function DonutChart({ data, title }) {
                     {item.label}
                   </span>
                 </td>
-                <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: '500', borderBottom: '1px solid var(--border-color)' }}>
-                  {percentage}%
-                </td>
-                <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '600', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  {formatCurrency(item.value)}
-                </td>
+                {isComparison ? (
+                  <>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '600', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
+                      {formatCurrency(item.primaryValue || 0)}
+                    </td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+                      {formatCurrency(item.comparisonValue || 0)}
+                    </td>
+                    <td style={{ 
+                      padding: '5px 8px', 
+                      textAlign: 'right', 
+                      fontWeight: '700', 
+                      color: (item.primaryValue || 0) >= (item.comparisonValue || 0) ? 'var(--color-sales-net)' : '#ef4444', 
+                      borderBottom: '1px solid var(--border-color)' 
+                    }}>
+                      {item.comparisonValue ? `${(item.primaryValue >= item.comparisonValue ? '+' : '')}${getGrowth(item.primaryValue, item.comparisonValue)}%` : 'N/A'}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: '500', borderBottom: '1px solid var(--border-color)' }}>
+                      {percentage}%
+                    </td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '600', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
+                      {formatCurrency(item.value)}
+                    </td>
+                  </>
+                )}
               </tr>
             );
           })}

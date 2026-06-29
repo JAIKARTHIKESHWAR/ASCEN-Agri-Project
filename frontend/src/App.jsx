@@ -227,22 +227,13 @@ function App() {
     // We apply that directly to the analyticsContext so the FilterBar dropdowns sync.
     if (data.comparisonContext && data.comparisonContext.compareMode) {
       const cc = data.comparisonContext;
-      // FY codes from the LLM (e.g. "FY2627") need to be resolved to calendar years
-      // for the comparison engine which uses EXTRACT(YEAR ...) = 2026 etc.
-      // Mapping: FY2627 → primaryYear=2026, FY2425 → primaryYear=2024
-      const fyToCalendarYear = (fyCode) => {
-        if (!fyCode) return '';
-        const m = fyCode.match(/^FY(\d{2})(\d{2})$/);
-        if (m) return String(2000 + parseInt(m[1], 10));
-        return '';
-      };
       setAnalyticsContext(prev => ({
         ...prev,
         compareMode:       cc.compareMode || 'none',
-        primaryYear:       cc.primaryYear   ? fyToCalendarYear(cc.primaryYear)   : prev.primaryYear,
+        primaryYear:       cc.primaryYear   || prev.primaryYear,
         primaryQuarter:    cc.primaryQuarter   ? String(cc.primaryQuarter)   : '',
         primaryMonth:      cc.primaryMonth     ? String(cc.primaryMonth)     : '',
-        comparisonYear:    cc.comparisonYear ? fyToCalendarYear(cc.comparisonYear) : prev.comparisonYear,
+        comparisonYear:    cc.comparisonYear || prev.comparisonYear,
         comparisonQuarter: cc.comparisonQuarter ? String(cc.comparisonQuarter) : '',
         comparisonMonth:   cc.comparisonMonth   ? String(cc.comparisonMonth)   : ''
       }));
@@ -555,10 +546,13 @@ function App() {
       const compActive = compareMode !== 'none' && primaryYear && comparisonYear;
       
       const compQueryParams = new URLSearchParams({
-        datasetId,
         primaryYear,
         comparisonYear,
-        mode: compareMode
+        mode: compareMode,
+        division: filters.division || '',
+        channel: filters.channel || '',
+        state: filters.state || '',
+        crop: filters.crop || ''
       });
       if (analyticsContext.primaryQuarter) compQueryParams.append('primaryQuarter', analyticsContext.primaryQuarter);
       if (analyticsContext.comparisonQuarter) compQueryParams.append('comparisonQuarter', analyticsContext.comparisonQuarter);

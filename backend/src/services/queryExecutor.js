@@ -10,11 +10,20 @@ export async function executeQueryPlan(dbConnection, queryPlan, datasetId) {
 
   try {
     let sql = queryPlan.sql;
-    if (datasetId) {
-      sql = `WITH sales_data AS (
-  SELECT * FROM sales_data_raw WHERE batch_id = ${parseInt(datasetId, 10)}
+    const sqlHasExplicitFY = /fy_code\s*=\s*['"]FY\d{4}['"]/i.test(sql) || /batch_id\s*=/i.test(sql);
+    if (datasetId && datasetId !== 'all' && !sqlHasExplicitFY) {
+      const isBatchId = !isNaN(Number(datasetId));
+      if (isBatchId) {
+        sql = `WITH sales_data AS (
+  SELECT * FROM sales_data_raw WHERE batch_id = ${Number(datasetId)}
 )
 ${sql}`;
+      } else {
+        sql = `WITH sales_data AS (
+  SELECT * FROM sales_data_raw WHERE fy_code = '${datasetId.replace(/'/g, "''")}'
+)
+${sql}`;
+      }
     }
     const rows = await dbAll(sql);
     return rows;

@@ -131,10 +131,18 @@ function ExecutiveSummary({
       divMap[item.division] = (divMap[item.division] || 0) + item.salesAmountINR;
     }
   });
-  const divisionData = Object.keys(divMap).map(key => ({
-    label: key === 'VG' ? 'Vegetables (VG)' : key === 'FC' ? 'Field Crops (FC)' : key,
-    value: divMap[key]
-  }));
+
+  const isComparisonMode = analyticsContext.compareMode && analyticsContext.compareMode !== 'none' && analyticsContext.primaryYear && analyticsContext.comparisonYear;
+
+  const divisionData = isComparisonMode && comparisonMetrics?.divisionContribution
+    ? comparisonMetrics.divisionContribution.map(d => ({
+        ...d,
+        label: d.label === 'VG' ? 'Vegetables (VG)' : d.label === 'FC' ? 'Field Crops (FC)' : d.label
+      }))
+    : Object.keys(divMap).map(key => ({
+        label: key === 'VG' ? 'Vegetables (VG)' : key === 'FC' ? 'Field Crops (FC)' : key,
+        value: divMap[key]
+      }));
 
   // Calculate division totals for dynamic state contribution calculations
   const divTotalVG = divMap.VG || 0;
@@ -201,27 +209,35 @@ function ExecutiveSummary({
     }
   });
 
-  const topStatesBySales = Object.keys(stateGrossMap)
-    .map(name => ({ label: name, value: stateGrossMap[name] }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
+  const topStatesBySales = isComparisonMode && comparisonMetrics?.topStates
+    ? comparisonMetrics.topStates
+    : Object.keys(stateGrossMap)
+        .map(name => ({ label: name, value: stateGrossMap[name] }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10);
 
-  const topCropsBySales = Object.keys(cropGrossMap)
-    .map(name => ({ label: name, value: cropGrossMap[name] }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
+  const topCropsBySales = isComparisonMode && comparisonMetrics?.topCrops
+    ? comparisonMetrics.topCrops
+    : Object.keys(cropGrossMap)
+        .map(name => ({ label: name, value: cropGrossMap[name] }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10);
 
-  const topDealersBySales = Object.keys(dealerGrossMap)
-    .map(name => ({ label: name, value: dealerGrossMap[name] }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
+  const topDealersBySales = isComparisonMode && comparisonMetrics?.topDealers
+    ? comparisonMetrics.topDealers
+    : Object.keys(dealerGrossMap)
+        .map(name => ({ label: name, value: dealerGrossMap[name] }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10);
 
   const totalGrossSales = Object.values(stateGrossMap).reduce((sum, val) => sum + val, 0);
 
-  const stateHeatmapData = Object.keys(stateGrossMap)
-    .map(name => ({ label: name, value: stateGrossMap[name], returns: stateReturnsMap[name] || 0 }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 8);
+  const stateHeatmapData = isComparisonMode && comparisonMetrics?.topStates
+    ? comparisonMetrics.topStates
+    : Object.keys(stateGrossMap)
+        .map(name => ({ label: name, value: stateGrossMap[name], returns: stateReturnsMap[name] || 0 }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8);
 
   const topReturnStates = Object.keys(stateReturnsMap)
     .map(name => {
@@ -237,10 +253,12 @@ function ExecutiveSummary({
     .sort((a, b) => b.returns - a.returns)
     .slice(0, 4);
 
-  const returnsTrendData = Object.keys(stateReturnsMap)
-    .map(name => ({ label: name, value: stateReturnsMap[name] }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5);
+  const returnsTrendData = isComparisonMode && comparisonMetrics?.returnsByState
+    ? comparisonMetrics.returnsByState
+    : Object.keys(stateReturnsMap)
+        .map(name => ({ label: name, value: stateReturnsMap[name] }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5);
 
   const topState = topStatesBySales[0];
   const topCrop = topCropsBySales[0];
@@ -361,33 +379,69 @@ function ExecutiveSummary({
         <div className="kpi-card gross-sales-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Gross Invoice Sales</span>
-            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.grossSalesGrowth)}
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.grossSalesGrowth)}
           </div>
-          <span className="kpi-value">{formatCurrency(kpis.grossSales)}</span>
+          <span className="kpi-value">
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.primaryKPIs
+              ? formatCurrency(comparisonMetrics.primaryKPIs.grossSales)
+              : formatCurrency(kpis.grossSales)}
+          </span>
+          {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.comparisonKPIs && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-4px', display: 'block' }}>
+              vs {formatCurrency(comparisonMetrics.comparisonKPIs.grossSales)}
+            </span>
+          )}
           <span className="kpi-subtitle">Standard invoices (F2)</span>
         </div>
         <div className="kpi-card sales-returns-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Sales Returns</span>
-            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.returnsGrowth)}
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.returnsGrowth)}
           </div>
-          <span className="kpi-value">{formatCurrency(Math.abs(kpis.returnsValue || 0))}</span>
+          <span className="kpi-value">
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.primaryKPIs
+              ? formatCurrency(Math.abs(comparisonMetrics.primaryKPIs.returnsValue || 0))
+              : formatCurrency(Math.abs(kpis.returnsValue || 0))}
+          </span>
+          {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.comparisonKPIs && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-4px', display: 'block' }}>
+              vs {formatCurrency(Math.abs(comparisonMetrics.comparisonKPIs.returnsValue || 0))}
+            </span>
+          )}
           <span className="kpi-subtitle">RE return transactions</span>
         </div>
         <div className="kpi-card cancelled-invoices-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Cancelled Invoices</span>
-            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.cancelledGrowth)}
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.cancelledGrowth)}
           </div>
-          <span className="kpi-value">{formatCurrency(Math.abs(kpis.cancelledValue || 0))}</span>
+          <span className="kpi-value">
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.primaryKPIs
+              ? formatCurrency(Math.abs(comparisonMetrics.primaryKPIs.cancelledValue || 0))
+              : formatCurrency(Math.abs(kpis.cancelledValue || 0))}
+          </span>
+          {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.comparisonKPIs && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-4px', display: 'block' }}>
+              vs {formatCurrency(Math.abs(comparisonMetrics.comparisonKPIs.cancelledValue || 0))}
+            </span>
+          )}
           <span className="kpi-subtitle">Cancellation billing (S1)</span>
         </div>
         <div className="kpi-card net-sales-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Net External Sales</span>
-            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.netSalesGrowth)}
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.netSalesGrowth)}
           </div>
-          <span className="kpi-value">{formatCurrency(kpis.netExternalSales)}</span>
+          <span className="kpi-value">
+            {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.primaryKPIs
+              ? formatCurrency(comparisonMetrics.primaryKPIs.netSales)
+              : formatCurrency(kpis.netExternalSales)}
+          </span>
+          {comparisonMetrics && analyticsContext.compareMode !== 'none' && comparisonMetrics.comparisonKPIs && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-4px', display: 'block' }}>
+              vs {formatCurrency(comparisonMetrics.comparisonKPIs.netSales)}
+            </span>
+          )}
           <span className="kpi-subtitle">Gross - Returns - Cancelled</span>
         </div>
         <div className="kpi-card cogm-card">
@@ -404,7 +458,17 @@ function ExecutiveSummary({
           <div className="card-header">
             <div>
               <h3 className="card-title">Gross Sales Trend</h3>
-              <p className="card-subtitle">Aggregations for selected filters</p>
+              <p className="card-subtitle">
+                Aggregations for selected filters
+                {comparisonMetrics && analyticsContext.compareMode !== 'none' && (
+                  <span style={{ marginLeft: '12px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <span style={{ color: 'var(--color-sales-gross)', marginRight: '4px' }}>●</span>
+                    {analyticsContext.primaryYear ? `FY 20${analyticsContext.primaryYear.substring(2,4)}-20${analyticsContext.primaryYear.substring(4,6)}` : 'Primary'}
+                    <span style={{ color: 'var(--text-muted)', marginLeft: '12px', marginRight: '4px' }}>■</span>
+                    {analyticsContext.comparisonYear ? `FY 20${analyticsContext.comparisonYear.substring(2,4)}-20${analyticsContext.comparisonYear.substring(4,6)}` : 'Comparison'}
+                  </span>
+                )}
+              </p>
             </div>
             
             {/* Chart Type Toggle Button Group */}
@@ -536,8 +600,10 @@ function ExecutiveSummary({
           </div>
           <div className="ranked-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {topStatesBySales.slice(0, statesLimit).map((item, index) => {
-              const maxValue = topStatesBySales[0]?.value || 1;
-              const percentage = totalGrossSales > 0 ? ((item.value / totalGrossSales) * 100).toFixed(1) : '0.0';
+              const maxValue = topStatesBySales[0]?.primaryValue !== undefined ? topStatesBySales[0].primaryValue : (topStatesBySales[0]?.value || 1);
+              const val = item.primaryValue !== undefined ? item.primaryValue : item.value;
+              const compVal = item.comparisonValue;
+              const percentage = totalGrossSales > 0 ? ((val / totalGrossSales) * 100).toFixed(1) : '0.0';
               return (
                 <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -545,14 +611,24 @@ function ExecutiveSummary({
                       {index + 1}. {item.label}
                     </span>
                     <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-primary)', flexShrink: 0 }}>
-                      {formatCurrency(item.value)}
+                      {formatCurrency(val)}
+                      {compVal !== undefined && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: '400', color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                          vs {formatCurrency(compVal)}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div style={{ width: '100%', height: '4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '999px', overflow: 'hidden' }}>
-                    <div style={{ width: `${(item.value / maxValue) * 100}%`, height: '100%', backgroundColor: 'var(--color-sales-gross)', borderRadius: '999px' }} />
+                    <div style={{ width: `${(val / maxValue) * 100}%`, height: '100%', backgroundColor: 'var(--color-sales-gross)', borderRadius: '999px' }} />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
-                    <span>{percentage}%</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {compVal !== undefined && (
+                      <span style={{ fontWeight: '600', color: val >= compVal ? 'var(--color-sales-net)' : '#ef4444' }}>
+                        {val >= compVal ? '↑' : '↓'} {compVal ? Math.abs(((val - compVal) / compVal) * 100).toFixed(1) : 0}%
+                      </span>
+                    )}
+                    <span style={{ marginLeft: 'auto' }}>{percentage}%</span>
                   </div>
                 </div>
               );
@@ -612,8 +688,10 @@ function ExecutiveSummary({
           </div>
           <div className="ranked-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {topCropsBySales.slice(0, cropsLimit).map((item, index) => {
-              const maxValue = topCropsBySales[0]?.value || 1;
-              const percentage = totalGrossSales > 0 ? ((item.value / totalGrossSales) * 100).toFixed(1) : '0.0';
+              const maxValue = topCropsBySales[0]?.primaryValue !== undefined ? topCropsBySales[0].primaryValue : (topCropsBySales[0]?.value || 1);
+              const val = item.primaryValue !== undefined ? item.primaryValue : item.value;
+              const compVal = item.comparisonValue;
+              const percentage = totalGrossSales > 0 ? ((val / totalGrossSales) * 100).toFixed(1) : '0.0';
               return (
                 <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -621,14 +699,24 @@ function ExecutiveSummary({
                       {index + 1}. {item.label}
                     </span>
                     <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-primary)', flexShrink: 0 }}>
-                      {formatCurrency(item.value)}
+                      {formatCurrency(val)}
+                      {compVal !== undefined && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: '400', color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                          vs {formatCurrency(compVal)}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div style={{ width: '100%', height: '4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '999px', overflow: 'hidden' }}>
-                    <div style={{ width: `${(item.value / maxValue) * 100}%`, height: '100%', backgroundColor: 'var(--color-sales-net)', borderRadius: '999px' }} />
+                    <div style={{ width: `${(val / maxValue) * 100}%`, height: '100%', backgroundColor: 'var(--color-sales-net)', borderRadius: '999px' }} />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
-                    <span>{percentage}%</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {compVal !== undefined && (
+                      <span style={{ fontWeight: '600', color: val >= compVal ? 'var(--color-sales-net)' : '#ef4444' }}>
+                        {val >= compVal ? '↑' : '↓'} {compVal ? Math.abs(((val - compVal) / compVal) * 100).toFixed(1) : 0}%
+                      </span>
+                    )}
+                    <span style={{ marginLeft: 'auto' }}>{percentage}%</span>
                   </div>
                 </div>
               );
@@ -688,8 +776,10 @@ function ExecutiveSummary({
           </div>
           <div className="ranked-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {topDealersBySales.slice(0, dealersLimit).map((item, index) => {
-              const maxValue = topDealersBySales[0]?.value || 1;
-              const percentage = totalGrossSales > 0 ? ((item.value / totalGrossSales) * 100).toFixed(1) : '0.0';
+              const maxValue = topDealersBySales[0]?.primaryValue !== undefined ? topDealersBySales[0].primaryValue : (topDealersBySales[0]?.value || 1);
+              const val = item.primaryValue !== undefined ? item.primaryValue : item.value;
+              const compVal = item.comparisonValue;
+              const percentage = totalGrossSales > 0 ? ((val / totalGrossSales) * 100).toFixed(1) : '0.0';
               return (
                 <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -697,14 +787,24 @@ function ExecutiveSummary({
                       {index + 1}. {item.label}
                     </span>
                     <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-primary)', flexShrink: 0 }}>
-                      {formatCurrency(item.value)}
+                      {formatCurrency(val)}
+                      {compVal !== undefined && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: '400', color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                          vs {formatCurrency(compVal)}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div style={{ width: '100%', height: '4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '999px', overflow: 'hidden' }}>
-                    <div style={{ width: `${(item.value / maxValue) * 100}%`, height: '100%', backgroundColor: 'var(--color-ipt)', borderRadius: '999px' }} />
+                    <div style={{ width: `${(val / maxValue) * 100}%`, height: '100%', backgroundColor: 'var(--color-ipt)', borderRadius: '999px' }} />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
-                    <span>{percentage}%</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {compVal !== undefined && (
+                      <span style={{ fontWeight: '600', color: val >= compVal ? 'var(--color-sales-net)' : '#ef4444' }}>
+                        {val >= compVal ? '↑' : '↓'} {compVal ? Math.abs(((val - compVal) / compVal) * 100).toFixed(1) : 0}%
+                      </span>
+                    )}
+                    <span style={{ marginLeft: 'auto' }}>{percentage}%</span>
                   </div>
                 </div>
               );
@@ -743,12 +843,21 @@ function ExecutiveSummary({
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
             {(expandedPanels.salesByState ? stateHeatmapData : stateHeatmapData.slice(0, 4)).map(item => {
-              const maxValue = stateHeatmapData[0]?.value || 1;
-              const intensity = item.value / maxValue;
+              const maxValue = stateHeatmapData[0]?.primaryValue !== undefined ? stateHeatmapData[0].primaryValue : (stateHeatmapData[0]?.value || 1);
+              const val = item.primaryValue !== undefined ? item.primaryValue : item.value;
+              const compVal = item.comparisonValue;
+              const intensity = val / maxValue;
               return (
                 <div key={item.label} style={{ borderRadius: '12px', padding: '10px', background: `linear-gradient(180deg, rgba(37,99,235,${0.08 + intensity * 0.18}), rgba(16,185,129,${0.04 + intensity * 0.08}))`, border: '1px solid var(--border-color)' }}>
                   <div style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-primary)' }}>{item.label}</div>
-                  <div style={{ marginTop: '6px', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{formatCurrency(item.value)}</div>
+                  <div style={{ marginTop: '6px', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                    {formatCurrency(val)}
+                    {compVal !== undefined && (
+                      <span style={{ fontSize: '0.66rem', fontWeight: '400', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
+                        vs {formatCurrency(compVal)}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ marginTop: '10px', height: '5px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '999px', overflow: 'hidden' }}>
                     <div style={{ width: `${intensity * 100}%`, height: '100%', backgroundColor: 'var(--color-sales-gross)' }} />
                   </div>

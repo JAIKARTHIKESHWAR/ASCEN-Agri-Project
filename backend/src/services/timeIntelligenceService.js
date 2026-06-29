@@ -7,23 +7,6 @@ import { buildFilterClause } from './filterBuilder.js';
  * Supports YoY, QoQ, and MoM modes.
  * Properly aligns with the Indian Financial Year (April to March).
  */
-function parseYear(val) {
-  if (!val) return NaN;
-  const str = String(val).trim();
-  if (/^\d{4}$/.test(str)) {
-    return parseInt(str, 10);
-  }
-  const m = str.match(/^FY(\d{2})(\d{2})$/i);
-  if (m) {
-    return 2000 + parseInt(m[1], 10);
-  }
-  const m2 = str.match(/^FY(\d{2})$/i);
-  if (m2) {
-    return 2000 + parseInt(m2[1], 10);
-  }
-  return parseInt(str, 10);
-}
-
 export async function computeComparison(filters) {
   const {
     primaryYear,
@@ -35,11 +18,11 @@ export async function computeComparison(filters) {
     mode
   } = filters;
 
-  const pYear = parseYear(primaryYear);
-  const cYear = parseYear(comparisonYear);
+  const pYear = primaryYear;
+  const cYear = comparisonYear;
 
-  if (isNaN(pYear) || isNaN(cYear)) {
-    throw new Error('Primary and comparison years must be valid numbers.');
+  if (!pYear || !cYear) {
+    throw new Error('Primary and comparison years are required');
   }
 
   // Clean filters to remove any dataset/year/date specific filters
@@ -57,6 +40,14 @@ export async function computeComparison(filters) {
   // Build the base filter clause and params
   const { whereClause: baseWhere, sqlParams } = buildFilterClause(cleanFilters);
 
+  console.log('Comparison Request Params:', {
+    pYear,
+    cYear,
+    mode,
+    baseWhere,
+    sqlParams
+  });
+
   // Indian FY quarter -> calendar month mapping
   // Q1 = Apr-Jun (4-6), Q2 = Jul-Sep (7-9),
   // Q3 = Oct-Dec (10-12), Q4 = Jan-Mar (1-3)
@@ -67,14 +58,9 @@ export async function computeComparison(filters) {
     4: [1, 2, 3]
   };
 
-  // Indian Financial Year SQL expression:
-  // If month >= 4, FY is the calendar year.
-  // If month <= 3, FY is the calendar year - 1.
-  const fyExpression = `(CASE WHEN EXTRACT(MONTH FROM sd.invoice_date) >= 4 THEN EXTRACT(YEAR FROM sd.invoice_date)::int ELSE EXTRACT(YEAR FROM sd.invoice_date)::int - 1 END)`;
-
   // Build period filter clauses
-  let primaryPeriodClause = `${fyExpression} = ${pYear}`;
-  let compPeriodClause    = `${fyExpression} = ${cYear}`;
+  let primaryPeriodClause = `sd.fy_code = '${pYear}'`;
+  let compPeriodClause    = `sd.fy_code = '${cYear}'`;
 
   if (mode === 'qoq' && primaryQuarter && comparisonQuarter) {
     const pq = parseInt(primaryQuarter, 10);
@@ -131,11 +117,11 @@ export async function computeComparison(filters) {
 
   const skipComparison = !compHasData;
 
-  // KPI queries (ensure F2, RE, S1 are correctly matched and aggregated with absolute values where appropriate)
+  // KPI queries (ensure F2, RE, S1 are correctly matched and aggregated with absolute values where appropriate using classification)
   const kpiSelect = `
-    COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
-    ABS(COALESCE(SUM(CASE WHEN sd.billing_type='RE' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
-    ABS(COALESCE(SUM(CASE WHEN sd.billing_type='S1' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
+    COALESCE(SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
+    ABS(COALESCE(SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
+    ABS(COALESCE(SUM(CASE WHEN bt.classification='CANCELLED' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
     COALESCE(COUNT(DISTINCT sd.customer_id), 0) AS customer_count,
     COALESCE(COUNT(DISTINCT sd.invoice_id),  0) AS invoice_count
   `;
@@ -162,6 +148,9 @@ export async function computeComparison(filters) {
         `, sqlParams)
   ]);
   const compKpis = compKpisRaw || {};
+
+  console.log('Primary KPIs Raw:', primaryKpis);
+  console.log('Comparison KPIs Raw:', compKpis);
 
   const pGross     = parseFloat(primaryKpis?.gross_sales     || 0);
   const pReturns   = parseFloat(primaryKpis?.returns_value   || 0);
@@ -199,15 +188,15 @@ export async function computeComparison(filters) {
     const trendQuery = `
       SELECT
         EXTRACT(MONTH FROM sd.invoice_date)::int AS idx,
-        SUM(CASE WHEN ${fyExpression} = ${pYear} THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
-        SUM(CASE WHEN ${fyExpression} = ${cYear} THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+        SUM(CASE WHEN sd.fy_code = '${pYear}' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+        SUM(CASE WHEN sd.fy_code = '${cYear}' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
       FROM sales_data_raw sd
       JOIN billing_types bt ON sd.billing_type = bt.billing_type
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
-        AND ${fyExpression} IN (${pYear}, ${cYear})
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} bt.classification = 'GROSS_SALE'
+        AND sd.fy_code IN ('${pYear}', '${cYear}')
       GROUP BY idx
       ORDER BY idx
     `;
@@ -230,20 +219,20 @@ export async function computeComparison(filters) {
     const trendQuery = `
       SELECT
         CASE
-          ${pMonths.map((m, i) => `WHEN EXTRACT(MONTH FROM sd.invoice_date) = ${m} AND ${fyExpression} = ${pYear} THEN ${i + 1}`).join('\n          ')}
-          ${cMonths.map((m, i) => `WHEN EXTRACT(MONTH FROM sd.invoice_date) = ${m} AND ${fyExpression} = ${cYear} THEN ${i + 1}`).join('\n          ')}
+          ${pMonths.map((m, i) => `WHEN EXTRACT(MONTH FROM sd.invoice_date) = ${m} AND sd.fy_code = '${pYear}' THEN ${i + 1}`).join('\n          ')}
+          ${cMonths.map((m, i) => `WHEN EXTRACT(MONTH FROM sd.invoice_date) = ${m} AND sd.fy_code = '${cYear}' THEN ${i + 1}`).join('\n          ')}
         END AS idx,
-        SUM(CASE WHEN ${fyExpression} = ${pYear} AND EXTRACT(MONTH FROM sd.invoice_date) IN (${pMonths.join(',')}) THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
-        SUM(CASE WHEN ${fyExpression} = ${cYear} AND EXTRACT(MONTH FROM sd.invoice_date) IN (${cMonths.join(',')}) THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+        SUM(CASE WHEN sd.fy_code = '${pYear}' AND EXTRACT(MONTH FROM sd.invoice_date) IN (${pMonths.join(',')}) THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+        SUM(CASE WHEN sd.fy_code = '${cYear}' AND EXTRACT(MONTH FROM sd.invoice_date) IN (${cMonths.join(',')}) THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
       FROM sales_data_raw sd
       JOIN billing_types bt ON sd.billing_type = bt.billing_type
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} bt.classification = 'GROSS_SALE'
         AND (
-          (${fyExpression} = ${pYear} AND EXTRACT(MONTH FROM sd.invoice_date) IN (${pMonths.join(',')}))
-          OR (${fyExpression} = ${cYear} AND EXTRACT(MONTH FROM sd.invoice_date) IN (${cMonths.join(',')}))
+          (sd.fy_code = '${pYear}' AND EXTRACT(MONTH FROM sd.invoice_date) IN (${pMonths.join(',')}))
+          OR (sd.fy_code = '${cYear}' AND EXTRACT(MONTH FROM sd.invoice_date) IN (${cMonths.join(',')}))
         )
       GROUP BY idx
       ORDER BY idx
@@ -260,17 +249,17 @@ export async function computeComparison(filters) {
     const trendQuery = `
       SELECT
         EXTRACT(DAY FROM sd.invoice_date)::int AS idx,
-        SUM(CASE WHEN ${fyExpression} = ${pYear} AND EXTRACT(MONTH FROM sd.invoice_date) = ${pm} THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
-        SUM(CASE WHEN ${fyExpression} = ${cYear} AND EXTRACT(MONTH FROM sd.invoice_date) = ${cm} THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+        SUM(CASE WHEN sd.fy_code = '${pYear}' AND EXTRACT(MONTH FROM sd.invoice_date) = ${pm} THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+        SUM(CASE WHEN sd.fy_code = '${cYear}' AND EXTRACT(MONTH FROM sd.invoice_date) = ${cm} THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
       FROM sales_data_raw sd
       JOIN billing_types bt ON sd.billing_type = bt.billing_type
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} bt.classification = 'GROSS_SALE'
         AND (
-          (${fyExpression} = ${pYear} AND EXTRACT(MONTH FROM sd.invoice_date) = ${pm}) OR
-          (${fyExpression} = ${cYear} AND EXTRACT(MONTH FROM sd.invoice_date) = ${cm})
+          (sd.fy_code = '${pYear}' AND EXTRACT(MONTH FROM sd.invoice_date) = ${pm}) OR
+          (sd.fy_code = '${cYear}' AND EXTRACT(MONTH FROM sd.invoice_date) = ${cm})
         )
       GROUP BY idx
       ORDER BY idx
@@ -282,6 +271,119 @@ export async function computeComparison(filters) {
       return { label: `Day ${day}`, primaryValue: parseFloat(row?.primary_val || 0), comparisonValue: parseFloat(row?.comp_val || 0) };
     });
   }
+
+  // 1. Division Contribution Comparison
+  const divQuery = `
+    SELECT
+      m.division AS label,
+      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+    FROM sales_data_raw sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
+    JOIN materials m ON sd.material_code = m.material_code
+    JOIN territories t ON sd.territory_id = t.territory_id
+    JOIN customers c ON sd.customer_id = c.customer_id
+    ${baseWhere ? `${baseWhere} AND` : 'WHERE'} ((${primaryPeriodClause}) OR (${compPeriodClause}))
+    GROUP BY m.division
+  `;
+  const divisionContributionRaw = await dbAll(divQuery, sqlParams);
+  const divisionContribution = divisionContributionRaw.map(r => ({
+    label: r.label,
+    primaryValue: parseFloat(r.primary_val || 0),
+    comparisonValue: parseFloat(r.comp_val || 0)
+  }));
+
+  // 2. Top States Comparison
+  const stateQuery = `
+    SELECT
+      t.state AS label,
+      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+    FROM sales_data_raw sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
+    JOIN materials m ON sd.material_code = m.material_code
+    JOIN territories t ON sd.territory_id = t.territory_id
+    JOIN customers c ON sd.customer_id = c.customer_id
+    ${baseWhere ? `${baseWhere} AND` : 'WHERE'} ((${primaryPeriodClause}) OR (${compPeriodClause}))
+    GROUP BY t.state
+    ORDER BY primary_val DESC
+    LIMIT 10
+  `;
+  const topStatesRaw = await dbAll(stateQuery, sqlParams);
+  const topStates = topStatesRaw.map(r => ({
+    label: r.label,
+    primaryValue: parseFloat(r.primary_val || 0),
+    comparisonValue: parseFloat(r.comp_val || 0)
+  }));
+
+  // 3. Top Crops Comparison
+  const cropQuery = `
+    SELECT
+      m.crop AS label,
+      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+    FROM sales_data_raw sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
+    JOIN materials m ON sd.material_code = m.material_code
+    JOIN territories t ON sd.territory_id = t.territory_id
+    JOIN customers c ON sd.customer_id = c.customer_id
+    ${baseWhere ? `${baseWhere} AND` : 'WHERE'} ((${primaryPeriodClause}) OR (${compPeriodClause}))
+    GROUP BY m.crop
+    ORDER BY primary_val DESC
+    LIMIT 10
+  `;
+  const topCropsRaw = await dbAll(cropQuery, sqlParams);
+  const topCrops = topCropsRaw.map(r => ({
+    label: r.label,
+    primaryValue: parseFloat(r.primary_val || 0),
+    comparisonValue: parseFloat(r.comp_val || 0)
+  }));
+
+  // 4. Top Dealers Comparison
+  const dealerQuery = `
+    SELECT
+      c.customer_name AS label,
+      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+    FROM sales_data_raw sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
+    JOIN materials m ON sd.material_code = m.material_code
+    JOIN territories t ON sd.territory_id = t.territory_id
+    JOIN customers c ON sd.customer_id = c.customer_id
+    ${baseWhere ? `${baseWhere} AND` : 'WHERE'} ((${primaryPeriodClause}) OR (${compPeriodClause}))
+    GROUP BY c.customer_name
+    ORDER BY primary_val DESC
+    LIMIT 10
+  `;
+  const topDealersRaw = await dbAll(dealerQuery, sqlParams);
+  const topDealers = topDealersRaw.map(r => ({
+    label: r.label,
+    primaryValue: parseFloat(r.primary_val || 0),
+    comparisonValue: parseFloat(r.comp_val || 0)
+  }));
+
+  // 5. Returns by State Comparison
+  const returnsQuery = `
+    SELECT
+      t.state AS label,
+      ABS(SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'RETURN' THEN sd.sales_amount_inr ELSE 0 END)) AS primary_val,
+      ABS(SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'RETURN' THEN sd.sales_amount_inr ELSE 0 END)) AS comp_val
+    FROM sales_data_raw sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
+    JOIN materials m ON sd.material_code = m.material_code
+    JOIN territories t ON sd.territory_id = t.territory_id
+    JOIN customers c ON sd.customer_id = c.customer_id
+    ${baseWhere ? `${baseWhere} AND` : 'WHERE'} ((${primaryPeriodClause}) OR (${compPeriodClause}))
+    GROUP BY t.state
+    ORDER BY primary_val DESC
+    LIMIT 10
+  `;
+  const returnsByStateRaw = await dbAll(returnsQuery, sqlParams);
+  const returnsByState = returnsByStateRaw.map(r => ({
+    label: r.label,
+    primaryValue: parseFloat(r.primary_val || 0),
+    comparisonValue: parseFloat(r.comp_val || 0)
+  }));
 
   return {
     primaryYear: pYear,
@@ -319,6 +421,11 @@ export async function computeComparison(filters) {
         ? `Comparison data unavailable for year ${cYear}. Showing primary period only.`
         : null
     },
-    series
+    series,
+    divisionContribution,
+    topStates,
+    topCrops,
+    topDealers,
+    returnsByState
   };
 }
