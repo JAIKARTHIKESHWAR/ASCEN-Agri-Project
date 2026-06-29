@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 
 // Format numbers in Indian numbering system (Lakhs/Crores)
 export function formatCurrency(value) {
@@ -59,7 +59,7 @@ export function useContainerDimensions(ref) {
 }
 
 // 1. Donut Chart Component
-export function DonutChart({ data, title }) {
+export const DonutChart = React.memo(function DonutChart({ data, title }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
@@ -169,7 +169,7 @@ export function DonutChart({ data, title }) {
         <tbody>
           {data.map((item, idx) => {
             if (item.value === 0) return null;
-            const percentage = ((item.value / total) * 100).toFixed(1);
+            const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : 0;
             const color = colors[idx % colors.length];
             const isHovered = hoveredIdx === idx;
 
@@ -203,17 +203,27 @@ export function DonutChart({ data, title }) {
       </table>
     </div>
   );
-}
+});
 
 // 2. Line Chart Component
-export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }) {
+export const LineChart = React.memo(function LineChart({ data, xKey = 'label', yKey = 'value', comparisonKey = null, height = 240 }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
-  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0 });
+  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0, compValue: 0 });
   const containerRef = useRef(null);
   const dimensions = useContainerDimensions(containerRef);
 
-  if (!data || data.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
+  const safeData = useMemo(() => {
+    return Array.isArray(data)
+      ? data.filter(d => d && d[xKey] && d[yKey] != null)
+      : [];
+  }, [data, xKey, yKey]);
+
+  if (safeData.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '180px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+        No data available for selected filters
+      </div>
+    );
   }
 
   const width = dimensions.width || 800;
@@ -222,40 +232,56 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
   const paddingLeft = 60;
   const paddingRight = 20;
   const paddingTop = 20;
-  const paddingBottom = 40;
+  const paddingBottom = safeData.length > 3 ? 55 : 40;
 
   const xMax = Math.max(width - paddingLeft - paddingRight, 10);
   const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
 
-  const yValues = data.map(d => d[yKey]);
+  const yValues = [...safeData.map(d => d[yKey]), ...(comparisonKey ? safeData.map(d => d[comparisonKey]) : [])];
   const maxYVal = Math.max(...yValues, 1000) * 1.1; // Add 10% headroom
   const minYVal = 0;
 
-  const points = data.map((d, index) => {
-    const x = paddingLeft + (index / (data.length - 1 || 1)) * xMax;
+  const points = safeData.map((d, index) => {
+    const x = paddingLeft + (index / (safeData.length - 1 || 1)) * xMax;
     const yVal = d[yKey];
     const y = paddingTop + yMax - ((yVal - minYVal) / (maxYVal - minYVal)) * yMax;
     return { x, y, label: d[xKey], value: yVal };
   });
 
+  const compPoints = comparisonKey ? safeData.map((d, index) => {
+    const x = paddingLeft + (index / (safeData.length - 1 || 1)) * xMax;
+    const yVal = d[comparisonKey] || 0;
+    const y = paddingTop + yMax - ((yVal - minYVal) / (maxYVal - minYVal)) * yMax;
+    return { x, y, value: yVal };
+  }) : [];
+
   const pathD = points.reduce((acc, point, index) => {
     return index === 0 ? `M ${point.x} ${point.y}` : `${acc} L ${point.x} ${point.y}`;
   }, '');
 
-  const areaD = points.length > 0
-    ? `${pathD} L ${points[points.length - 1].x} ${paddingTop + yMax} L ${points[0].x} ${paddingTop + yMax} Z`
-    : '';
+  const compPathD = comparisonKey ? compPoints.reduce((acc, point, index) => {
+    return index === 0 ? `M ${point.x} ${point.y}` : `${acc} L ${point.x} ${point.y}`;
+  }, '') : '';
+
 
   // Handle tooltip sizing and positioning
   const handlePointHover = (event, point, index) => {
     setHoveredIdx(index);
-    setTooltip({
-      show: true,
-      x: point.x,
-      y: point.y - 15,
-      label: point.label,
-      value: point.value
-    });
+    
+    // Find container bounding rect to absolute position relative to it
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = point.x;
+      const y = point.y;
+      setTooltip({
+        show: true,
+        x,
+        y,
+        label: point.label,
+        value: point.value,
+        compValue: point.compValue
+      });
+    }
   };
 
   const handlePointLeave = () => {
@@ -297,32 +323,27 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
           </g>
         ))}
 
-        {/* X labels */}
         {points.map((pt, i) => {
           // Show every label if small dataset, or skip to avoid cluttering
           const skipLabel = points.length > 8 && i % 2 !== 0 && i !== points.length - 1;
           if (skipLabel) return null;
 
+          const truncateLabel = (label) => typeof label === 'string' && label.length > 12 ? label.substring(0, 10) + '..' : label;
+
           return (
             <text
               key={i}
               x={pt.x}
-              y={viewHeight - paddingBottom + 20}
-              textAnchor="middle"
+              y={viewHeight - paddingBottom + 15}
+              textAnchor={points.length > 3 ? 'end' : 'middle'}
+              transform={points.length > 3 ? `rotate(-25, ${pt.x}, ${viewHeight - paddingBottom + 15})` : undefined}
               className="chart-text"
               style={{ fontSize: '9px' }}
             >
-              {pt.label}
+              {points.length > 3 ? truncateLabel(pt.label) : pt.label}
             </text>
           );
         })}
-
-        {/* Shaded Area */}
-        <path
-          d={areaD}
-          fill="var(--color-sales-gross)"
-          className="chart-area"
-        />
 
         {/* Line */}
         <path
@@ -330,6 +351,17 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
           stroke="var(--color-sales-gross)"
           className="chart-line"
         />
+
+        {/* Comparison Line */}
+        {comparisonKey && (
+          <path
+            d={compPathD}
+            stroke="var(--text-muted)"
+            strokeDasharray="4,4"
+            className="chart-line"
+            style={{ opacity: 0.7 }}
+          />
+        )}
 
         {/* Interactive Points */}
         {points.map((pt, i) => (
@@ -343,6 +375,23 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
             strokeWidth={hoveredIdx === i ? 3 : 2}
             className="chart-point"
             onMouseEnter={(e) => handlePointHover(e, pt, i)}
+            onMouseLeave={handlePointLeave}
+            style={{ transition: 'all 0.15s ease' }}
+          />
+        ))}
+
+        {/* Comparison Points */}
+        {comparisonKey && compPoints.map((pt, i) => (
+          <circle
+            key={`comp-${i}`}
+            cx={pt.x}
+            cy={pt.y}
+            r={hoveredIdx === i ? 5 : 3}
+            fill="var(--bg-secondary)"
+            stroke="var(--text-muted)"
+            strokeWidth={hoveredIdx === i ? 2.5 : 1.5}
+            className="chart-point"
+            onMouseEnter={(e) => handlePointHover(e, { ...pt, label: points[i]?.label, value: points[i]?.value, compValue: pt.value }, i)}
             onMouseLeave={handlePointLeave}
             style={{ transition: 'all 0.15s ease' }}
           />
@@ -389,23 +438,38 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
         >
           <div style={{ fontWeight: '600' }}>{tooltip.label}</div>
           <div style={{ color: 'var(--color-sales-gross)', fontWeight: '700' }}>
-            {formatCurrency(tooltip.value)}
+            {comparisonKey ? 'Current: ' : ''}{formatCurrency(tooltip.value)}
           </div>
+          {comparisonKey && (
+            <div style={{ color: 'var(--text-muted)', fontWeight: '700' }}>
+              Compare: {formatCurrency(tooltip.compValue)}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
-}
+});
 
 // 3. Vertical Bar Chart Component
-export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, barColor = 'var(--color-sales-gross)' }) {
+export const BarChart = React.memo(function BarChart({ data, xKey = 'label', yKey = 'value', comparisonKey = null, height = 240, barColor = 'var(--color-sales-gross)' }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
-  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0 });
+  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0, compValue: 0 });
   const containerRef = useRef(null);
   const dimensions = useContainerDimensions(containerRef);
 
-  if (!data || data.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No comparison data available</div>;
+  const safeData = useMemo(() => {
+    return Array.isArray(data)
+      ? data.filter(d => d && d[xKey] && d[yKey] != null)
+      : [];
+  }, [data, xKey, yKey]);
+
+  if (safeData.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '180px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+        No data available for selected filters
+      </div>
+    );
   }
 
   const width = dimensions.width || 800;
@@ -414,20 +478,22 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
   const paddingLeft = 60;
   const paddingRight = 20;
   const paddingTop = 20;
-  const paddingBottom = 40;
+  const paddingBottom = safeData.length > 3 ? 55 : 40;
 
   const xMax = Math.max(width - paddingLeft - paddingRight, 10);
   const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
 
-  const yValues = data.map(d => d[yKey]);
+  const yValues = [...safeData.map(d => d[yKey]), ...(comparisonKey ? safeData.map(d => d[comparisonKey]) : [])];
   const maxYVal = Math.max(...yValues, 100) * 1.1; // Add 10% headroom
   const minYVal = 0;
 
-  const barCount = data.length;
+  const barCount = safeData.length;
   const gapFraction = 0.3; // 30% gap between bars
   const totalBarWidth = xMax / barCount;
   const barGap = totalBarWidth * gapFraction;
   const barWidth = totalBarWidth - barGap;
+
+  const truncateLabel = (label) => typeof label === 'string' && label.length > 12 ? label.substring(0, 10) + '..' : label;
 
   const handleBarHover = (event, item, index, barX, barY) => {
     setHoveredIdx(index);
@@ -436,7 +502,8 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
       x: barX + barWidth / 2,
       y: barY - 10,
       label: item[xKey],
-      value: item[yKey]
+      value: item[yKey],
+      compValue: comparisonKey ? item[comparisonKey] : 0
     });
   };
 
@@ -480,9 +547,59 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
         ))}
 
         {/* Bars */}
-        {data.map((item, i) => {
+        {safeData.map((item, i) => {
           const val = item[yKey];
           const barHeight = ((val - minYVal) / (maxYVal - minYVal)) * yMax;
+          const compVal = comparisonKey ? item[comparisonKey] : 0;
+          const compBarHeight = comparisonKey ? ((compVal - minYVal) / (maxYVal - minYVal)) * yMax : 0;
+
+          if (comparisonKey) {
+            const halfBarWidth = barWidth / 2 - 1;
+            const x1 = paddingLeft + i * totalBarWidth + barGap / 2;
+            const x2 = x1 + halfBarWidth + 2;
+            const y1 = paddingTop + yMax - barHeight;
+            const y2 = paddingTop + yMax - compBarHeight;
+            
+            return (
+              <g key={i}>
+                <rect
+                  x={x1}
+                  y={y1}
+                  width={halfBarWidth}
+                  height={Math.max(barHeight, 2)}
+                  fill={hoveredIdx === i ? 'var(--bg-accent)' : barColor}
+                  rx={2}
+                  className="chart-bar"
+                  onMouseEnter={(e) => handleBarHover(e, item, i, x1, y1)}
+                  onMouseLeave={handleBarLeave}
+                  style={{ cursor: 'pointer' }}
+                />
+                <rect
+                  x={x2}
+                  y={y2}
+                  width={halfBarWidth}
+                  height={Math.max(compBarHeight, 2)}
+                  fill="var(--text-muted)"
+                  rx={2}
+                  className="chart-bar"
+                  onMouseEnter={(e) => handleBarHover(e, item, i, x2, y2)}
+                  onMouseLeave={handleBarLeave}
+                  style={{ opacity: 0.6, cursor: 'pointer' }}
+                />
+                 <text
+                  x={x1 + barWidth / 2}
+                  y={viewHeight - paddingBottom + 15}
+                  textAnchor={safeData.length > 3 ? 'end' : 'middle'}
+                  transform={safeData.length > 3 ? `rotate(-25, ${x1 + barWidth / 2}, ${viewHeight - paddingBottom + 15})` : undefined}
+                  className="chart-text"
+                  style={{ fontSize: '9px' }}
+                >
+                  {safeData.length > 3 ? truncateLabel(item[xKey]) : item[xKey]}
+                </text>
+              </g>
+            );
+          }
+
           const x = paddingLeft + i * totalBarWidth + barGap / 2;
           const y = paddingTop + yMax - barHeight;
 
@@ -503,14 +620,15 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
                   cursor: 'pointer'
                 }}
               />
-              <text
+               <text
                 x={x + barWidth / 2}
-                y={viewHeight - paddingBottom + 18}
-                textAnchor="middle"
+                y={viewHeight - paddingBottom + 15}
+                textAnchor={safeData.length > 3 ? 'end' : 'middle'}
+                transform={safeData.length > 3 ? `rotate(-25, ${x + barWidth / 2}, ${viewHeight - paddingBottom + 15})` : undefined}
                 className="chart-text"
                 style={{ fontSize: '9px' }}
               >
-                {item[xKey]}
+                {safeData.length > 3 ? truncateLabel(item[xKey]) : item[xKey]}
               </text>
             </g>
           );
@@ -556,24 +674,34 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
           }}
         >
           <div style={{ fontWeight: '600' }}>{tooltip.label}</div>
-          <div style={{ color: 'var(--bg-accent)', fontWeight: '700' }}>
-            {formatCurrency(tooltip.value)}
+          <div style={{ color: 'var(--color-sales-gross)', fontWeight: '700' }}>
+            {comparisonKey ? 'Current: ' : ''}{formatCurrency(tooltip.value)}
           </div>
+          {comparisonKey && (
+            <div style={{ color: 'var(--text-muted)', fontWeight: '700' }}>
+              Compare: {formatCurrency(tooltip.compValue)}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
-}
+});
 
 // 4. Area Chart Component
-export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, fillColor = 'var(--color-sales-gross)' }) {
+export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, fillColor = 'var(--color-sales-gross)' }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0 });
   const containerRef = useRef(null);
   const dimensions = useContainerDimensions(containerRef);
+  const gradientId = useMemo(() => "areaGradient_" + Math.random().toString(36).substr(2, 9), []);
 
   if (!data || data.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '180px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+        No data available for selected filters
+      </div>
+    );
   }
 
   const width = dimensions.width || 800;
@@ -657,14 +785,14 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
         })}
 
         <defs>
-          <linearGradient id="area-fill-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={fillColor} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={fillColor} stopOpacity="0.02" />
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={fillColor} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={fillColor} stopOpacity="0.05" />
           </linearGradient>
         </defs>
 
-        <path d={areaD} fill="url(#area-fill-gradient)" className="chart-area" />
-        <path d={pathD} stroke={fillColor} className="chart-line" />
+        <path d={areaD} fill={`url(#${gradientId})`} className="chart-area" fillOpacity={0.25} style={{ opacity: 1 }} />
+        <path d={pathD} stroke={fillColor} className="chart-line" fill="none" />
 
         {points.map((pt, i) => (
           <circle
@@ -713,12 +841,16 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
       )}
     </div>
   );
-}
+});
 
 // 5. Heatmap Chart Component
 export function HeatmapChart({ data, xKey = 'label', yKey = 'value', height = 240 }) {
   if (!data || data.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '180px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+        No data available for selected filters
+      </div>
+    );
   }
 
   const maxValue = Math.max(...data.map(d => d[yKey]), 1);
@@ -766,7 +898,11 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
   const dimensions = useContainerDimensions(containerRef);
 
   if (!data || data.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '180px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+        No data available for selected filters
+      </div>
+    );
   }
 
   const width = dimensions.width || 800;

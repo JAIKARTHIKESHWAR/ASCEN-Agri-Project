@@ -6,22 +6,25 @@ import {
   getProductPerformance, 
   getReturns, 
   getFiltersOptions, 
-  getImportQuality 
+  getImportQuality,
+  getComparison
 } from '../controllers/dashboardController.js';
 import { 
   getTransactions, 
   exportTransactions 
 } from '../controllers/transactionController.js';
 import { askQuestion } from '../controllers/askController.js';
-import { uploadMiddleware, uploadCSV, softResetData } from '../controllers/uploadController.js';
+import { uploadMiddleware, uploadCSV, softResetData, getDatasets } from '../controllers/uploadController.js';
 import { login } from '../controllers/authController.js';
 import { bootstrapSession, newSession, getSessionHistory } from '../controllers/copilotController.js';
 import { transcribeAndProcessVoice } from '../controllers/voiceController.js';
 
 const router = express.Router();
 
-// 1. Executive Summary Endpoint
+// 1. Executive Summary Endpoints
 router.get('/dashboard/summary', getSummary);
+router.get('/dashboard/comparison', getComparison);
+
 
 // 2. Sales Performance Endpoint
 router.get('/dashboard/sales', getSalesPerformance);
@@ -49,6 +52,10 @@ router.post('/data/upload', uploadMiddleware, uploadCSV);
 
 // 9b. Soft Reset Dataset Endpoint
 router.post('/data/reset', softResetData);
+
+// 9c. List all datasets metadata
+router.get('/data/datasets', getDatasets);
+
 
 // 10. Filters options dropdowns cascading Endpoint
 router.get('/filters/options', getFiltersOptions);

@@ -2,6 +2,8 @@ import { translateQuestionToPlan } from '../ai/queryTranslator.js';
 import { executeQueryPlan } from '../services/queryExecutor.js';
 import { synthesizeAnswer } from '../ai/answerSynthesizer.js';
 import { dbRun, dbGet, dbAll, dbTransaction } from '../database.js';
+import { getTargetDatasetId } from '../controllers/dashboardController.js';
+
 
 const ALLOWED_VISUALIZATIONS = [
   "line",
@@ -31,6 +33,7 @@ function sanitizeEncoding(str) {
  * Shared service layer processing BI Copilot question statefully
  */
 export async function processQuestion({ question, sessionId, filters }) {
+  const datasetId = await getTargetDatasetId(filters?.datasetId || filters?.activeDatasetId);
   const questionLower = question.toLowerCase();
 
   // 1. Resolve or bootstrap active session
@@ -170,6 +173,7 @@ export async function processQuestion({ question, sessionId, filters }) {
   // 5. Merge incoming filter contexts
   const incomingFilters = filters || {};
   const mergedFilters = {
+    datasetId,
     fy: incomingFilters.fy_code || incomingFilters.financialYear || sessionContext.filters.financialYear || null,
     crop: incomingFilters.crop || sessionContext.filters.crop || null,
     state: incomingFilters.state || sessionContext.filters.state || null,
@@ -269,7 +273,7 @@ export async function processQuestion({ question, sessionId, filters }) {
   let queryError = null;
 
   try {
-    resultRows = await executeQueryPlan(null, queryPlan);
+    resultRows = await executeQueryPlan(null, queryPlan, datasetId);
     console.log(`Query completed successfully, returned ${resultRows.length} records.`);
   } catch (e) {
     console.error('SQL query execution failed:', e);
@@ -511,6 +515,9 @@ export async function processQuestion({ question, sessionId, filters }) {
     chartData,
     calculationBasis: calcBasis,
     appliedFilters: updatedContextFilters,
+    // Pass comparisonContext from the LLM plan so the frontend can update
+    // the Time Intelligence panel (Primary Year / Compare Year dropdowns)
+    comparisonContext: queryPlan.comparisonContext || null,
     limitationNote: null,
     sessionId: session.id,
     suggestions: defaultSuggestions

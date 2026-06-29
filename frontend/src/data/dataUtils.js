@@ -28,19 +28,19 @@ export function calculateKPIs(filteredData) {
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
-      grossSales += item.salesAmountINR;
-      totalCOGM += item.cogm;
+      grossSales += item.salesAmountINR || 0;
+      totalCOGM += item.cogm || 0;
     } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
-      returnsValue += item.salesAmountINR;
+      returnsValue += Math.abs(item.salesAmountINR || 0);
     } else if (bt === 'S1' || bt === 'ZS1') {
-      cancelledValue += item.salesAmountINR;
+      cancelledValue += Math.abs(item.salesAmountINR || 0);
     } else if (bt === 'IPT' || bt === 'ZSTO') {
-      iptValue += item.salesAmountINR;
+      iptValue += Math.abs(item.salesAmountINR || 0);
     }
   });
 
   // Net External Sales = Gross Sales - Returns - Cancelled
-  const netExternalSales = grossSales - returnsValue - cancelledValue;
+  const netExternalSales = Math.max(0, grossSales - returnsValue - cancelledValue);
 
   return {
     grossSales,

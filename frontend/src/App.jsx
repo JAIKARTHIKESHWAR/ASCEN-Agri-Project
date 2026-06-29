@@ -67,6 +67,15 @@ function parseCSV(text) {
 function App() {
   const [activeTab, setActiveTab] = useState('summary');
   const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [debouncedFilters, setDebouncedFilters] = useState(INITIAL_FILTERS);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters(filters);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [filters]);
+
   const [isDark, setIsDark] = useState(false); // Default to light monochrome (white UI)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [dataset, setDataset] = useState([]);
@@ -77,6 +86,33 @@ function App() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [toast, setToast] = useState(null);
+
+  const [datasetsList, setDatasetsList] = useState([]);
+  const [activeDatasetId, setActiveDatasetId] = useState(() => {
+    return localStorage.getItem('activeDatasetId') || '';
+  });
+
+  const [analyticsContext, setAnalyticsContext] = useState(() => {
+    const saved = localStorage.getItem('analyticsContext');
+    return saved ? JSON.parse(saved) : {
+      primaryYear: '',
+      comparisonYear: '',
+      compareMode: 'none'
+    };
+  });
+
+  const [comparisonMetrics, setComparisonMetrics] = useState(null);
+
+  useEffect(() => {
+    if (activeDatasetId) {
+      localStorage.setItem('activeDatasetId', activeDatasetId);
+    }
+  }, [activeDatasetId]);
+
+  useEffect(() => {
+    localStorage.setItem('analyticsContext', JSON.stringify(analyticsContext));
+  }, [analyticsContext]);
+
 
   const fileInputRef = useRef(null);
 
@@ -107,13 +143,25 @@ function App() {
       const newFilters = { ...INITIAL_FILTERS };
       const incoming = data.filters;
 
-      if (incoming.financialYear) newFilters.fy = incoming.financialYear;
       if (incoming.crop) newFilters.crop = incoming.crop;
       if (incoming.state) newFilters.state = incoming.state;
       if (incoming.division) newFilters.division = incoming.division;
       if (incoming.distributionChannel) newFilters.distributionChannel = incoming.distributionChannel;
       if (incoming.startDate) newFilters.startDate = incoming.startDate;
       if (incoming.endDate) newFilters.endDate = incoming.endDate;
+
+      // Sync Financial Year dropdown by fyCode (not batch_id)
+      // datasetsList uses batch_id as the identifier but each entry has a fyCode/fy_code
+      if (incoming.financialYear) {
+        const matchedFY = datasetsList.find(
+          d => d.batch_id === incoming.financialYear ||
+               d.fyCode === incoming.financialYear ||
+               d.fy_code === incoming.financialYear
+        );
+        if (matchedFY) {
+          setActiveDatasetId(matchedFY.batch_id.toString());
+        }
+      }
 
       setFilters(prev => ({
         ...prev,
@@ -172,7 +220,35 @@ function App() {
         return next;
       });
     }
+
+    // 5. Apply Time Intelligence comparison context from NLU
+    // When the AI detects a comparative query (e.g. "compare Q2 this year vs last year"),
+    // it returns a comparisonContext with FY codes and quarter/month numbers.
+    // We apply that directly to the analyticsContext so the FilterBar dropdowns sync.
+    if (data.comparisonContext && data.comparisonContext.compareMode) {
+      const cc = data.comparisonContext;
+      // FY codes from the LLM (e.g. "FY2627") need to be resolved to calendar years
+      // for the comparison engine which uses EXTRACT(YEAR ...) = 2026 etc.
+      // Mapping: FY2627 → primaryYear=2026, FY2425 → primaryYear=2024
+      const fyToCalendarYear = (fyCode) => {
+        if (!fyCode) return '';
+        const m = fyCode.match(/^FY(\d{2})(\d{2})$/);
+        if (m) return String(2000 + parseInt(m[1], 10));
+        return '';
+      };
+      setAnalyticsContext(prev => ({
+        ...prev,
+        compareMode:       cc.compareMode || 'none',
+        primaryYear:       cc.primaryYear   ? fyToCalendarYear(cc.primaryYear)   : prev.primaryYear,
+        primaryQuarter:    cc.primaryQuarter   ? String(cc.primaryQuarter)   : '',
+        primaryMonth:      cc.primaryMonth     ? String(cc.primaryMonth)     : '',
+        comparisonYear:    cc.comparisonYear ? fyToCalendarYear(cc.comparisonYear) : prev.comparisonYear,
+        comparisonQuarter: cc.comparisonQuarter ? String(cc.comparisonQuarter) : '',
+        comparisonMonth:   cc.comparisonMonth   ? String(cc.comparisonMonth)   : ''
+      }));
+    }
   };
+
 
   // Scroll to section and highlight
   useEffect(() => {
@@ -204,45 +280,112 @@ function App() {
     }
   }, [isDark]);
 
-  // Load initial data from backend PostgreSQL database on mount
+  // Load datasets list and active dataset transactions on mount or activeDatasetId change
   useEffect(() => {
-    async function fetchInitialDataset() {
+    async function loadDatasetsAndActive() {
       try {
-        const res = await fetch('/api/transactions?limit=100000');
-        if (res.ok) {
-          const payload = await res.json();
-          if (payload && payload.data && payload.data.length > 0) {
-            const mappedItems = payload.data.map(item => ({
-              ...item,
-              fy: item.fy || 'FY2627',
-              customerId: item.customerId || 'CUST-000',
-              division: item.division || 'VG',
-              ownTrade: item.ownTrade || 'Own',
-              materialCode: item.materialCode || 'MAT-000',
-              materialDescription: item.materialDescription || `${item.crop} ${item.variety}`,
-              seasonCode: item.seasonCode || 'N/A',
-              salesPrice: item.salesPrice || (item.qty ? Math.round(item.salesAmountINR / item.qty) : 0),
-              salesAmountINR: item.salesAmountINR,
-              cogm: item.cogm
-            }));
-            setDataset(mappedItems);
-            setDatasetName('Production Database (PostgreSQL)');
-          } else {
-            setDataset([]);
-            setDatasetName('Database Empty');
-          }
+        let savedId = localStorage.getItem('activeDatasetId') || '';
+        
+        // Parallelize datasets list and transactions fetching on mount
+        const [dsRes, transRes] = await Promise.all([
+          fetch('/api/data/datasets'),
+          savedId ? fetch(`/api/transactions?limit=100000&datasetId=${savedId}`) : Promise.resolve(null)
+        ]);
+
+        let dsList = [];
+        if (dsRes.ok) {
+          dsList = await dsRes.json();
+          setDatasetsList(dsList);
+        }
+
+        let targetId = savedId;
+        if (!targetId && dsList.length > 0) {
+          targetId = dsList[0].batch_id.toString();
+          setActiveDatasetId(targetId);
+        }
+
+        if (transRes && transRes.ok) {
+          const payload = await transRes.json();
+          const items = payload.data || [];
+          const mappedItems = items.map(item => ({
+            ...item,
+            fy: item.fy || 'FY2627',
+            customerId: item.customerId || 'CUST-000',
+            division: item.division || 'VG',
+            ownTrade: item.ownTrade || 'Own',
+            materialCode: item.materialCode || 'MAT-000',
+            materialDescription: item.materialDescription || `${item.crop} ${item.variety}`,
+            seasonCode: item.seasonCode || 'N/A',
+            salesPrice: item.salesPrice || (item.qty ? Math.round(item.salesAmountINR / item.qty) : 0),
+            salesAmountINR: item.salesAmountINR,
+            cogm: item.cogm
+          }));
+          setDataset(mappedItems);
+          const matched = dsList.find(d => d.batch_id.toString() === targetId);
+          setDatasetName(matched ? matched.label : `Financial Year ${targetId}`);
+        } else if (targetId) {
+          await reloadDatasetFromBackend(targetId, dsList);
         } else {
           setDataset([]);
-          setDatasetName('Database Connection Error');
+          setDatasetName('No Datasets Uploaded');
         }
-      } catch (err) {
-        console.warn("Backend database connection failed:", err);
-        setDataset([]);
-        setDatasetName('Database Connection Error');
+      } catch (e) {
+        console.error('Failed to load datasets list:', e);
       }
     }
-    fetchInitialDataset();
-  }, []);
+    loadDatasetsAndActive();
+  }, [activeDatasetId]);
+
+  // Load comparison data when activeDatasetId, comparison parameters, or filters change
+  useEffect(() => {
+    async function loadComparison() {
+      if (!activeDatasetId || analyticsContext.compareMode === 'none') {
+        setComparisonMetrics(null);
+        return;
+      }
+      
+      const { 
+        primaryYear, 
+        comparisonYear, 
+        primaryQuarter, 
+        comparisonQuarter, 
+        primaryMonth, 
+        comparisonMonth, 
+        compareMode 
+      } = analyticsContext;
+      
+      if (!primaryYear || !comparisonYear) return;
+      
+      try {
+        const queryParams = new URLSearchParams({
+          datasetId: activeDatasetId,
+          primaryYear,
+          comparisonYear,
+          mode: compareMode
+        });
+        if (primaryQuarter) queryParams.append('primaryQuarter', primaryQuarter);
+        if (comparisonQuarter) queryParams.append('comparisonQuarter', comparisonQuarter);
+        if (primaryMonth) queryParams.append('primaryMonth', primaryMonth);
+        if (comparisonMonth) queryParams.append('comparisonMonth', comparisonMonth);
+
+        // Append active dashboard filters
+        Object.entries(debouncedFilters).forEach(([key, val]) => {
+          if (val) {
+            queryParams.append(key, val);
+          }
+        });
+
+        const res = await fetch(`/api/dashboard/comparison?${queryParams.toString()}`);
+        if (res.ok) {
+          const metrics = await res.json();
+          setComparisonMetrics(metrics);
+        }
+      } catch (err) {
+        console.error('Failed to load comparison metrics:', err);
+      }
+    }
+    loadComparison();
+  }, [activeDatasetId, analyticsContext, debouncedFilters]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -276,11 +419,44 @@ function App() {
 
   // Compute filtered dataset dynamically based on filters
   const filteredData = useMemo(() => {
-    if (filters.fy === 'FY2526') {
+    if (debouncedFilters.fy === 'FY2526') {
       return [];
     }
-    return getFilteredData(dataset, filters);
-  }, [dataset, filters]);
+    let data = getFilteredData(dataset, debouncedFilters);
+
+    // Apply Time Intelligence Primary Period filtering if comparison is active
+    if (analyticsContext.compareMode && analyticsContext.compareMode !== 'none' && analyticsContext.primaryYear) {
+      data = data.filter(item => {
+        // Match Year
+        if (item.fy !== analyticsContext.primaryYear) return false;
+
+        // Match Quarter
+        if (analyticsContext.compareMode === 'qoq' && analyticsContext.primaryQuarter) {
+          const dateObj = new Date(item.date);
+          const month = dateObj.getMonth() + 1; // 1-12
+          const q = parseInt(analyticsContext.primaryQuarter, 10);
+          const qMonths = {
+            1: [4, 5, 6],
+            2: [7, 8, 9],
+            3: [10, 11, 12],
+            4: [1, 2, 3]
+          };
+          if (!qMonths[q]?.includes(month)) return false;
+        }
+
+        // Match Month
+        if (analyticsContext.compareMode === 'mom' && analyticsContext.primaryMonth) {
+          const dateObj = new Date(item.date);
+          const month = dateObj.getMonth() + 1;
+          if (month !== parseInt(analyticsContext.primaryMonth, 10)) return false;
+        }
+
+        return true;
+      });
+    }
+
+    return data;
+  }, [dataset, debouncedFilters, analyticsContext]);
 
   // Compute key metrics over the active dataset
   const kpis = useMemo(() => {
@@ -309,39 +485,94 @@ function App() {
   };
 
   const handleCSVUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
 
-    try {
-      showToast(`Uploading ${file.name}... Please wait.`, 'info');
-      const formData = new FormData();
-      formData.append('file', file);
+    // Reset input so the same file(s) can be re-selected after a reset
+    event.target.value = '';
 
-      const response = await fetch('/api/data/upload', {
-        method: 'POST',
-        body: formData
-      });
+    const results = { imported: 0, rejected: 0, failed: [] };
 
-      const result = await response.json();
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const label = files.length > 1 ? `(${i + 1}/${files.length}) ${file.name}` : file.name;
 
-      if (!response.ok) {
-        throw new Error(result.error || result.details || "Upload failed");
+      try {
+        showToast(`Uploading ${label}...`, 'info');
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/data/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.details || result.error || 'Upload failed');
+        }
+
+        results.imported += result.rowsImported || 0;
+        results.rejected += result.rowsRejected || 0;
+
+        if (files.length > 1) {
+          showToast(`✓ ${file.name} — ${(result.rowsImported || 0).toLocaleString('en-IN')} rows imported`, 'success');
+        }
+      } catch (err) {
+        results.failed.push({ name: file.name, reason: err.message });
+        showToast(`✗ ${file.name}: ${err.message}`, 'error');
       }
+    }
 
-      showToast(`Got it! Loaded ${result.rowsImported.toLocaleString('en-IN')} records from ${file.name}.`, 'success');
+    // Final summary toast for bulk uploads
+    if (files.length > 1) {
+      const failMsg = results.failed.length > 0 ? `, ${results.failed.length} failed` : '';
+      showToast(
+        `Bulk upload complete: ${results.imported.toLocaleString('en-IN')} rows imported${failMsg}`,
+        results.failed.length > 0 ? 'error' : 'success'
+      );
+    } else if (results.failed.length === 0) {
+      showToast(`Got it! Loaded ${results.imported.toLocaleString('en-IN')} records from ${files[0].name}.`, 'success');
+    }
 
-      // Reload dataset from backend database
-      await reloadDatasetFromBackend(file.name);
-    } catch (err) {
-      showToast(err.message, 'error');
+    // Reload dataset list and switch to the first newly uploaded FY
+    if (results.imported > 0) {
+      const dsRes = await fetch('/api/data/datasets');
+      if (dsRes.ok) {
+        const dsList = await dsRes.json();
+        setDatasetsList(dsList);
+        const nextActiveId = dsList[0] ? dsList[0].batch_id.toString() : 'all';
+        setActiveDatasetId(nextActiveId);
+        await reloadDatasetFromBackend(nextActiveId, dsList);
+      }
     }
   };
 
-  const reloadDatasetFromBackend = async (sourceName = 'Production Database') => {
+  const reloadDatasetFromBackend = async (datasetId, dsList = datasetsList) => {
     try {
-      const res = await fetch('/api/transactions?limit=100000');
-      if (res.ok) {
-        const payload = await res.json();
+      const { primaryYear, comparisonYear, compareMode } = analyticsContext;
+      const compActive = compareMode !== 'none' && primaryYear && comparisonYear;
+      
+      const compQueryParams = new URLSearchParams({
+        datasetId,
+        primaryYear,
+        comparisonYear,
+        mode: compareMode
+      });
+      if (analyticsContext.primaryQuarter) compQueryParams.append('primaryQuarter', analyticsContext.primaryQuarter);
+      if (analyticsContext.comparisonQuarter) compQueryParams.append('comparisonQuarter', analyticsContext.comparisonQuarter);
+      if (analyticsContext.primaryMonth) compQueryParams.append('primaryMonth', analyticsContext.primaryMonth);
+      if (analyticsContext.comparisonMonth) compQueryParams.append('comparisonMonth', analyticsContext.comparisonMonth);
+
+      // Fetch transaction records and comparison stats concurrently
+      const [transRes, compRes] = await Promise.all([
+        fetch(`/api/transactions?limit=100000&datasetId=${datasetId}`),
+        compActive ? fetch(`/api/dashboard/comparison?${compQueryParams.toString()}`) : Promise.resolve(null)
+      ]);
+
+      if (transRes.ok) {
+        const payload = await transRes.json();
         const items = payload.data || [];
         const mappedItems = items.map(item => ({
           ...item,
@@ -357,8 +588,15 @@ function App() {
           cogm: item.cogm
         }));
         setDataset(mappedItems);
-        setDatasetName(items.length > 0 ? sourceName : 'Database Empty (Reset)');
+        
+        const matched = dsList.find(d => d.batch_id.toString() === datasetId.toString());
+        setDatasetName(matched ? matched.label : `Financial Year ${datasetId}`);
         setFilters(INITIAL_FILTERS);
+      }
+
+      if (compRes && compRes.ok) {
+        const metrics = await compRes.json();
+        setComparisonMetrics(metrics);
       }
     } catch (err) {
       console.error("Failed to reload database records:", err);
@@ -383,6 +621,15 @@ function App() {
   const handleResetToDefault = () => {
     setShowResetConfirm(true);
   };
+
+  const availableFinancialYears = useMemo(() => {
+    return datasetsList
+      .map(ds => ds.fyCode || ds.batch_id)
+      .filter(Boolean)
+      .filter((value, index, self) => self.indexOf(value) === index && value !== 'all')
+      .sort()
+      .reverse();
+  }, [datasetsList]);
 
   return (
     <div className="app-container">
@@ -425,6 +672,7 @@ function App() {
                 onChange={handleCSVUpload}
                 style={{ display: 'none' }}
                 accept=".csv,.xlsx,.xls"
+                multiple
               />
               <button 
                 className="btn-export" 
@@ -480,6 +728,12 @@ function App() {
               uniqueStates={uniqueStates}
               uniqueCrops={uniqueCrops}
               cropsByDivision={cropsByDivision}
+              analyticsContext={analyticsContext}
+              setAnalyticsContext={setAnalyticsContext}
+              datasetsList={datasetsList}
+              activeDatasetId={activeDatasetId}
+              setActiveDatasetId={setActiveDatasetId}
+              availableYears={availableFinancialYears}
             />
           )}
         </header>
@@ -492,6 +746,8 @@ function App() {
             setActiveTab={setActiveTab}
             chartPreferences={chartPreferences}
             setChartPreferences={setChartPreferences}
+            analyticsContext={analyticsContext}
+            comparisonMetrics={comparisonMetrics}
           />
         )}
 
@@ -545,7 +801,7 @@ function App() {
           />
         )}
         <CopilotWidget 
-          currentFilters={filters} 
+          currentFilters={{ ...filters, datasetId: activeDatasetId }} 
           onAIResponse={handleCopilotResponse} 
         />
 

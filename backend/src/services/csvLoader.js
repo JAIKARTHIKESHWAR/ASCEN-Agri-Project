@@ -2,7 +2,7 @@ import fs from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
-import { dbRun, dbAll, dbTransaction } from '../database.js';
+import { dbRun, dbAll, dbGet, dbTransaction } from '../database.js';
 import { initializeDatabase } from '../scripts/initDb.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -410,8 +410,28 @@ export async function importCSV(filePath, originalFileName, fileHash) {
         const dateRaw = row.invoice_date;
 
         if (!invoiceId) throw new Error('Missing invoice ID');
-        const date = parseExcelDate(dateRaw);
-        if (!date) throw new Error(`Invalid or missing date: "${dateRaw}"`);
+        
+        let date = parseExcelDate(dateRaw);
+        let fyCode;
+        if (!date) {
+          date = '1970-01-01'; // Fallback dummy date for database NOT NULL constraint
+          fyCode = 'UNKNOWN';
+        } else {
+          // ── FY Code: prefer explicit value → deriveFinancialYear → derive from date ──
+          fyCode = deriveFinancialYear(row.fy_code);
+          if (!fyCode) {
+            const pd = new Date(date);
+            if (!isNaN(pd.getTime())) {
+              const yr = pd.getFullYear();
+              const mo = pd.getMonth(); // 0-based index
+              const startYr = mo >= 3 ? yr % 100 : (yr - 1) % 100;
+              const endYr = mo >= 3 ? (yr + 1) % 100 : yr % 100;
+              fyCode = `FY${String(startYr).padStart(2, '0')}${String(endYr).padStart(2, '0')}`;
+            } else {
+              fyCode = 'UNKNOWN';
+            }
+          }
+        }
 
         // ── String fields ─────────────────────────────────────────────────
         const billingType = row.billing_type ? String(row.billing_type).trim() : 'F2';
@@ -442,26 +462,10 @@ export async function importCSV(filePath, originalFileName, fileHash) {
         const salesAmountINR = parseNumeric(row.sales_amount_inr) || (qty * salesPrice);
         const cogm = parseNumeric(row.cogm) || (salesAmountINR * 0.7);
 
-        // ── FY Code: prefer explicit value → deriveFinancialYear → derive from date ──
-        let fyCode = deriveFinancialYear(row.fy_code);
-        if (!fyCode) {
-          // Fall back to deriving from the invoice date
-          const pd = new Date(date);
-          if (!isNaN(pd.getTime())) {
-            const yr = pd.getFullYear();
-            const mo = pd.getMonth(); // 0-based
-            const startYr = mo >= 3 ? yr % 100 : (yr - 1) % 100;
-            const endYr = mo >= 3 ? (yr + 1) % 100 : yr % 100;
-            fyCode = `FY${String(startYr).padStart(2, '0')}${String(endYr).padStart(2, '0')}`;
-          } else {
-            fyCode = 'FY2627';
-          }
-        }
-
         // Seed FY lookup
         await dbRun(
           'INSERT INTO financial_years (fy_code, fy_name) VALUES ($1, $2) ON CONFLICT (fy_code) DO NOTHING',
-          [fyCode, `Financial Year 20${fyCode.substring(2, 4)}-${fyCode.substring(4, 6)}`]
+          [fyCode, fyCode === 'UNKNOWN' ? 'Unknown Financial Year' : `Financial Year 20${fyCode.substring(2, 4)}-${fyCode.substring(4, 6)}`]
         );
 
         // Seed Customer
@@ -550,10 +554,39 @@ export async function importCSV(filePath, originalFileName, fileHash) {
       }
     }
 
-    // Finalise batch counts
+    // Calculate batch-level metadata: min_date, max_date
+    const statsQuery = `
+      SELECT 
+        MIN(invoice_date) as min_date,
+        MAX(invoice_date) as max_date
+      FROM sales_data_raw
+      WHERE batch_id = $1 AND invoice_date > '1970-01-01'
+    `;
+    const batchStats = await dbGet(statsQuery, [batchId]) || {};
+    
+    // Derive batch fy_code from the imported rows' fy_code in the database
+    const fyCodeQuery = `
+      SELECT fy_code, COUNT(*) as cnt
+      FROM sales_data_raw
+      WHERE batch_id = $1 AND fy_code IS NOT NULL AND fy_code <> 'UNKNOWN'
+      GROUP BY fy_code
+      ORDER BY cnt DESC
+      LIMIT 1
+    `;
+    const fyResult = await dbGet(fyCodeQuery, [batchId]);
+    let batchFyCode = fyResult?.fy_code || 'UNKNOWN';
+
+    // Finalise batch counts and metadata
     await dbRun(
-      'UPDATE upload_batches SET rows_imported = $1, rows_rejected = $2 WHERE batch_id = $3',
-      [importedCount, rejectedCount, batchId]
+      `UPDATE upload_batches 
+       SET rows_imported = $1, 
+           rows_rejected = $2, 
+           record_count = $1,
+           fy_code = $3, 
+           min_date = $4, 
+           max_date = $5 
+       WHERE batch_id = $6`,
+      [importedCount, rejectedCount, batchFyCode, batchStats.min_date || null, batchStats.max_date || null, batchId]
     );
   });
 

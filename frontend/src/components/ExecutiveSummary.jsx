@@ -1,7 +1,30 @@
 import React, { useState } from 'react';
 import { DonutChart, LineChart, BarChart, AreaChart, HeatmapChart, WaterfallChart, TreemapChart, SunburstChart, formatCurrency } from './CustomCharts';
 
-export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, chartPreferences = {}, setChartPreferences = () => {} }) {
+const trendModes = [
+  { key: 'line', label: 'Line' },
+  { key: 'bar', label: 'Bar' },
+  { key: 'area', label: 'Area' },
+  { key: 'heatmap', label: 'Heatmap' },
+  { key: 'waterfall', label: 'Waterfall' }
+];
+
+const divisionModes = [
+  { key: 'donut', label: 'Donut' },
+  { key: 'bar', label: 'Bar' },
+  { key: 'treemap', label: 'Treemap' },
+  { key: 'sunburst', label: 'Sunburst' }
+];
+
+function ExecutiveSummary({ 
+  filteredData, 
+  kpis, 
+  setActiveTab, 
+  chartPreferences = {}, 
+  setChartPreferences = () => {},
+  analyticsContext,
+  comparisonMetrics
+}) {
   const [chartType, setChartType] = useState('line'); // 'line' or 'bar'
   const [divisionView, setDivisionView] = useState('donut');
 
@@ -20,6 +43,44 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
     recommendations: false
   });
 
+  const renderGrowthBadge = (growthValue) => {
+    if (growthValue === undefined) return null;
+    // null = comparison data unavailable → show N/A in neutral grey
+    if (growthValue === null) {
+      return (
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          fontSize: '0.7rem',
+          fontWeight: '700',
+          backgroundColor: 'rgba(120,120,120,0.12)',
+          color: 'var(--text-secondary)',
+          marginLeft: '8px'
+        }}>
+          N/A
+        </span>
+      );
+    }
+    const isPositive = parseFloat(growthValue) >= 0;
+    return (
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        fontSize: '0.7rem',
+        fontWeight: '700',
+        backgroundColor: isPositive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+        color: isPositive ? '#10b981' : '#ef4444',
+        marginLeft: '8px'
+      }}>
+        {isPositive ? '↑' : '↓'} {Math.abs(parseFloat(growthValue))}%
+      </span>
+    );
+  };
+
   // 1. Monthly sales trend calculations
   const monthlyMap = {};
   filteredData.forEach(item => {
@@ -33,23 +94,27 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
     }
     monthlyMap[key].value += item.salesAmountINR;
   });
+
   const trendData = Object.keys(monthlyMap)
     .sort()
     .map(k => monthlyMap[k]);
 
+  const chartData = (comparisonMetrics && comparisonMetrics.series) ? comparisonMetrics.series : trendData;
+  const compKey = (comparisonMetrics && comparisonMetrics.series) ? 'comparisonValue' : null;
+  const mainValKey = (comparisonMetrics && comparisonMetrics.series) ? 'primaryValue' : 'value';
+
   // 2. State performance calculations (ranked by Net External Sales)
   const stateMap = {};
   filteredData.forEach(item => {
-    let sign = 0;
     const bt = (item.billingType || '').toUpperCase();
-    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') sign = 1;
-    else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1') sign = -1;
-    else return; // Ignore stock transfer for external sales
+    const isGross = bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2';
+    const isDeduction = bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1';
     
-    if (!stateMap[item.state]) {
-      stateMap[item.state] = 0;
+    if (isGross) {
+      stateMap[item.state] = (stateMap[item.state] || 0) + Math.abs(item.salesAmountINR || 0);
+    } else if (isDeduction) {
+      stateMap[item.state] = (stateMap[item.state] || 0) - Math.abs(item.salesAmountINR || 0);
     }
-    stateMap[item.state] += item.salesAmountINR * sign;
   });
   const rankedStates = Object.keys(stateMap)
     .map(st => ({ label: st, value: stateMap[st] }))
@@ -98,13 +163,18 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
   let vgNet = 0;
   let fcNet = 0;
   filteredData.forEach(item => {
-    let sign = 0;
     const bt = (item.billingType || '').toUpperCase();
-    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') sign = 1;
-    else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1') sign = -1;
+    const isGross = bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2';
+    const isDeduction = bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1';
     
-    if (item.division === 'VG') vgNet += item.salesAmountINR * sign;
-    if (item.division === 'FC') fcNet += item.salesAmountINR * sign;
+    if (item.division === 'VG') {
+      if (isGross) vgNet += Math.abs(item.salesAmountINR || 0);
+      else if (isDeduction) vgNet -= Math.abs(item.salesAmountINR || 0);
+    }
+    if (item.division === 'FC') {
+      if (isGross) fcNet += Math.abs(item.salesAmountINR || 0);
+      else if (isDeduction) fcNet -= Math.abs(item.salesAmountINR || 0);
+    }
   });
 
   const vgNetShare = totalNetSales > 0 ? (vgNet / totalNetSales) * 100 : 0;
@@ -123,11 +193,11 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
-      stateGrossMap[item.state] = (stateGrossMap[item.state] || 0) + item.salesAmountINR;
-      cropGrossMap[item.crop] = (cropGrossMap[item.crop] || 0) + item.salesAmountINR;
-      dealerGrossMap[item.customerName] = (dealerGrossMap[item.customerName] || 0) + item.salesAmountINR;
+      stateGrossMap[item.state] = (stateGrossMap[item.state] || 0) + (item.salesAmountINR || 0);
+      cropGrossMap[item.crop] = (cropGrossMap[item.crop] || 0) + (item.salesAmountINR || 0);
+      dealerGrossMap[item.customerName] = (dealerGrossMap[item.customerName] || 0) + (item.salesAmountINR || 0);
     } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
-      stateReturnsMap[item.state] = (stateReturnsMap[item.state] || 0) + item.salesAmountINR;
+      stateReturnsMap[item.state] = (stateReturnsMap[item.state] || 0) + Math.abs(item.salesAmountINR || 0);
     }
   });
 
@@ -289,22 +359,34 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
       {/* KPI Cards Grid */}
       <section className="kpi-grid">
         <div className="kpi-card gross-sales-card">
-          <span className="kpi-title">Gross Invoice Sales</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="kpi-title">Gross Invoice Sales</span>
+            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.grossSalesGrowth)}
+          </div>
           <span className="kpi-value">{formatCurrency(kpis.grossSales)}</span>
           <span className="kpi-subtitle">Standard invoices (F2)</span>
         </div>
         <div className="kpi-card sales-returns-card">
-          <span className="kpi-title">Sales Returns</span>
-          <span className="kpi-value">{formatCurrency(kpis.returnsValue)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="kpi-title">Sales Returns</span>
+            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.returnsGrowth)}
+          </div>
+          <span className="kpi-value">{formatCurrency(Math.abs(kpis.returnsValue || 0))}</span>
           <span className="kpi-subtitle">RE return transactions</span>
         </div>
         <div className="kpi-card cancelled-invoices-card">
-          <span className="kpi-title">Cancelled Invoices</span>
-          <span className="kpi-value">{formatCurrency(kpis.cancelledValue)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="kpi-title">Cancelled Invoices</span>
+            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.cancelledGrowth)}
+          </div>
+          <span className="kpi-value">{formatCurrency(Math.abs(kpis.cancelledValue || 0))}</span>
           <span className="kpi-subtitle">Cancellation billing (S1)</span>
         </div>
         <div className="kpi-card net-sales-card">
-          <span className="kpi-title">Net External Sales</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="kpi-title">Net External Sales</span>
+            {comparisonMetrics && renderGrowthBadge(comparisonMetrics.growth?.netSalesGrowth)}
+          </div>
           <span className="kpi-value">{formatCurrency(kpis.netExternalSales)}</span>
           <span className="kpi-subtitle">Gross - Returns - Cancelled</span>
         </div>
@@ -357,11 +439,11 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
           </div>
 
           <div className="chart-container">
-            {activeSalesChart === 'line' && <LineChart data={trendData} />}
-            {activeSalesChart === 'bar' && <BarChart data={trendData} barColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'area' && <AreaChart data={trendData} fillColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'heatmap' && <HeatmapChart data={trendData} />}
-            {activeSalesChart === 'waterfall' && <WaterfallChart data={trendData} />}
+            {activeSalesChart === 'line' && <LineChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
+            {activeSalesChart === 'bar' && <BarChart data={chartData} yKey={mainValKey} comparisonKey={compKey} barColor="var(--color-sales-gross)" />}
+            {activeSalesChart === 'area' && <AreaChart data={chartData} yKey={mainValKey} fillColor="var(--color-sales-gross)" />}
+            {activeSalesChart === 'heatmap' && <HeatmapChart data={chartData} />}
+            {activeSalesChart === 'waterfall' && <WaterfallChart data={chartData} />}
           </div>
         </div>
 
@@ -694,9 +776,9 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
               </div>
             </div>
           </div>
-          <div className="chart-container" style={{ height: expandedPanels.returns ? '220px' : '160px' }}>
+          <div className="chart-container" style={{ height: expandedPanels.returns ? '280px' : '220px' }}>
             {returnsTrendData.length > 0 ? (
-              returnsChartType === 'bar' ? <BarChart data={returnsTrendData} barColor="var(--color-returns)" height={expandedPanels.returns ? 220 : 160} /> : <LineChart data={returnsTrendData} height={expandedPanels.returns ? 220 : 160} />
+              returnsChartType === 'bar' ? <BarChart data={returnsTrendData} barColor="var(--color-returns)" height={expandedPanels.returns ? 280 : 220} /> : <LineChart data={returnsTrendData} height={expandedPanels.returns ? 280 : 220} />
             ) : (
               <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No return data for current filters</div>
             )}
@@ -705,7 +787,7 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
             {(expandedPanels.returns ? topReturnStates : topReturnStates.slice(0, 2)).map(item => (
               <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                 <span>{item.label}</span>
-                <span>{formatCurrency(item.returns)} | {item.rate.toFixed(1)}%</span>
+                <span>{formatCurrency(Math.abs(item.returns))} | {item.rate.toFixed(1)}%</span>
               </div>
             ))}
           </div>
@@ -742,3 +824,5 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
     </div>
   );
 }
+
+export default React.memo(ExecutiveSummary);

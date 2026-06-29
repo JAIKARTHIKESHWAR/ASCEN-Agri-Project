@@ -48,10 +48,29 @@ export async function initializeDatabase() {
   try {
     await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS file_hash TEXT');
     await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE');
-    // Add unique index on file_hash (not constraint, to avoid errors on NULL)
-    await dbRun('CREATE UNIQUE INDEX IF NOT EXISTS uq_upload_file_hash ON upload_batches (file_hash) WHERE file_hash IS NOT NULL');
+    await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS fy_code TEXT');
+    await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS min_date DATE');
+    await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS max_date DATE');
+    await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS record_count INTEGER');
+    await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ');
+    
+    // Drop the old unique constraint on file_hash if it exists —
+    // duplicate prevention now uses deleted_at IS NULL scoping, not a DB-level unique index.
+    await dbRun(`
+      DO $$
+      BEGIN
+          IF EXISTS (
+              SELECT 1
+              FROM pg_constraint
+              WHERE conname = 'uq_upload_batches_file_hash'
+          ) THEN
+              ALTER TABLE upload_batches
+              DROP CONSTRAINT uq_upload_batches_file_hash;
+          END IF;
+      END $$;
+    `);
   } catch (err) {
-    console.log('upload_batches migration skipped (already applied):', err.message);
+    console.log('upload_batches columns migration failed or skipped:', err.message);
   }
 
   // ── Step 3: Create missing tables ─────────────────────────────────────────
@@ -114,6 +133,13 @@ export async function initializeDatabase() {
 
   // ── Step 7: Pre-seed master data ──────────────────────────────────────────
   await seedMasterData();
+
+  // ── Step 8: Create Performance Optimization Indexes ──────────────────────────
+  console.log('Creating database performance indexes...');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_batch ON sales_data_raw(batch_id)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_fy ON sales_data_raw(fy_code)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_batch_fy ON sales_data_raw(batch_id, fy_code)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_invoice_date ON sales_data_raw(invoice_date)');
 }
 
 /**

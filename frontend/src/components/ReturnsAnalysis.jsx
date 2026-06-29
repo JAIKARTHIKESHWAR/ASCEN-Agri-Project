@@ -14,9 +14,9 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
-      grossSales += item.salesAmountINR;
+      grossSales += Math.abs(item.salesAmountINR || 0);
     } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
-      returnsValue += item.salesAmountINR;
+      returnsValue += Math.abs(item.salesAmountINR || 0);
     }
   });
 
@@ -33,7 +33,7 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
     if (!monthlyMap[key]) {
       monthlyMap[key] = { sortKey: key, label, value: 0 };
     }
-    monthlyMap[key].value += item.salesAmountINR;
+    monthlyMap[key].value += Math.abs(item.salesAmountINR || 0);
   });
   const returnsTrendData = Object.keys(monthlyMap)
     .sort()
@@ -45,9 +45,9 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
-      stateGrossMap[item.state] = (stateGrossMap[item.state] || 0) + item.salesAmountINR;
+      stateGrossMap[item.state] = (stateGrossMap[item.state] || 0) + Math.abs(item.salesAmountINR || 0);
     } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
-      stateReturnsMap[item.state] = (stateReturnsMap[item.state] || 0) + item.salesAmountINR;
+      stateReturnsMap[item.state] = (stateReturnsMap[item.state] || 0) + Math.abs(item.salesAmountINR || 0);
     }
   });
 
@@ -65,7 +65,7 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt !== 'RE' && bt !== 'ZRE' && bt !== 'ZIRE') return;
-    cropReturnsMap[item.crop] = (cropReturnsMap[item.crop] || 0) + item.salesAmountINR;
+    cropReturnsMap[item.crop] = (cropReturnsMap[item.crop] || 0) + Math.abs(item.salesAmountINR || 0);
   });
 
   const cropReturnsList = Object.keys(cropReturnsMap).map(cr => ({
@@ -78,7 +78,8 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
-      channelReturnsMap[item.distributionChannel] = (channelReturnsMap[item.distributionChannel] || 0) + item.salesAmountINR;
+      const channelKey = item.distributionChannel || item.dist_channel || 'Unknown';
+      channelReturnsMap[channelKey] = (channelReturnsMap[channelKey] || 0) + Math.abs(item.salesAmountINR || 0);
     }
   });
   const channelReturnsData = Object.keys(channelReturnsMap).map(ch => ({

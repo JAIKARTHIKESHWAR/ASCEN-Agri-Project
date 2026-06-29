@@ -1,11 +1,18 @@
-import { dbAll, dbGet } from '../database.js';
-import { buildFilterClause } from './dashboardController.js';
+import { dbAll as originalDbAll, dbGet as originalDbGet } from '../database.js';
+import { getTargetDatasetId } from './dashboardController.js';
+import { buildFilterClause } from '../services/filterBuilder.js';
+
+
+const dbAll = (sql, params) => originalDbAll(sql.replace(/\bsales_data\b/g, 'sales_data_raw'), params);
+const dbGet = (sql, params) => originalDbGet(sql.replace(/\bsales_data\b/g, 'sales_data_raw'), params);
+
 
 /**
  * Endpoint 6: GET /api/transactions
  */
 export async function getTransactions(req, res) {
   try {
+    req.query.datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
     const { search, page = 1, limit = 12 } = req.query;
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
@@ -132,6 +139,7 @@ export async function getTransactions(req, res) {
  */
 export async function exportTransactions(req, res) {
   try {
+    req.query.datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
     const { search, format = 'csv' } = req.query;
 
     const { whereClause, sqlParams, nextParamIndex } = buildFilterClause(req.query);

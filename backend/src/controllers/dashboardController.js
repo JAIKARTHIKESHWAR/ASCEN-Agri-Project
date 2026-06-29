@@ -1,65 +1,30 @@
-import { dbAll, dbGet } from '../database.js';
+import { dbAll as originalDbAll, dbGet as originalDbGet } from '../database.js';
+import { logger } from '../logger.js';
+import * as analytics from '../services/analyticsService.js';
+import { computeComparison } from '../services/timeIntelligenceService.js';
+import { buildFilterClause as centralBuildFilterClause } from '../services/filterBuilder.js';
+import { validateAnalyticsKPIs } from '../services/analyticsValidator.js';
 
-/**
- * Shared SQL filter builder helper for PostgreSQL (assigns dynamic param indices like $1, $2...)
- */
-export function buildFilterClause(params, startParamIndex = 1) {
-  const clauses = [];
-  const sqlParams = [];
-  let paramIdx = startParamIndex;
+const dbAll = (sql, params) => originalDbAll(sql.replace(/\bsales_data\b/g, 'sales_data_raw'), params);
+const dbGet = (sql, params) => originalDbGet(sql.replace(/\bsales_data\b/g, 'sales_data_raw'), params);
 
-  if (params.fy_code) {
-    clauses.push(`sd.fy_code = $${paramIdx++}`);
-    sqlParams.push(params.fy_code);
-  }
-  if (params.division) {
-    clauses.push(`m.division = $${paramIdx++}`);
-    sqlParams.push(params.division);
-  }
-  if (params.dist_channel) {
-    clauses.push(`c.dist_channel = $${paramIdx++}`);
-    sqlParams.push(params.dist_channel);
-  }
-  if (params.state) {
-    clauses.push(`t.state = $${paramIdx++}`);
-    sqlParams.push(params.state);
-  }
-  if (params.territory) {
-    clauses.push(`t.territory = $${paramIdx++}`);
-    sqlParams.push(params.territory);
-  }
-  if (params.crop) {
-    clauses.push(`m.crop = $${paramIdx++}`);
-    sqlParams.push(params.crop);
-  }
-  if (params.variety) {
-    clauses.push(`m.variety = $${paramIdx++}`);
-    sqlParams.push(params.variety);
-  }
-  if (params.rbm_id) {
-    clauses.push(`t.rbm_id = $${paramIdx++}`);
-    sqlParams.push(params.rbm_id);
-  }
-  if (params.am_id) {
-    clauses.push(`t.am_id = $${paramIdx++}`);
-    sqlParams.push(params.am_id);
-  }
-  if (params.dbm_id) {
-    clauses.push(`t.dbm_id = $${paramIdx++}`);
-    sqlParams.push(params.dbm_id);
-  }
-  if (params.start_date) {
-    clauses.push(`sd.invoice_date >= $${paramIdx++}`);
-    sqlParams.push(params.start_date);
-  }
-  if (params.end_date) {
-    clauses.push(`sd.invoice_date <= $${paramIdx++}`);
-    sqlParams.push(params.end_date);
-  }
+export const buildFilterClause = centralBuildFilterClause;
 
-  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  return { whereClause, sqlParams, nextParamIndex: paramIdx };
+export async function getTargetDatasetId(queryDatasetId) {
+  if (queryDatasetId) {
+    if (queryDatasetId === 'all' || String(queryDatasetId).startsWith('FY')) {
+      return queryDatasetId;
+    }
+    const parsed = parseInt(queryDatasetId, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  // Default fallback: get the latest uploaded batch's fy_code
+  const latestBatch = await dbGet('SELECT fy_code FROM upload_batches ORDER BY uploaded_at DESC LIMIT 1');
+  if (latestBatch && latestBatch.fy_code) return latestBatch.fy_code;
+  return 'all';
 }
+
+
 
 /**
  * Format date row values (YYYY-MM) to short human formats (e.g. "Sep 24")
@@ -78,160 +43,29 @@ function formatMonthLabel(dateStr) {
  */
 export async function getSummary(req, res) {
   try {
+    req.query.datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
+    logger.info({ endpoint: 'summary', filters: req.query });
     const { whereClause, sqlParams } = buildFilterClause(req.query);
 
     // 1. KPI Cards
-    const kpiSql = `
-      SELECT
-        SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS gross_sales,
-        SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END) AS returns_value,
-        SUM(CASE WHEN bt.classification='CANCELLED' THEN sd.sales_amount_inr ELSE 0 END) AS cancelled_value,
-        SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.cogm ELSE 0 END) AS total_cogm
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause}
-    `;
-    const kpiRes = await dbGet(kpiSql, sqlParams) || {};
-    const grossSales = parseFloat(kpiRes.gross_sales || 0);
-    const returnsValue = parseFloat(kpiRes.returns_value || 0);
-    const cancelledValue = parseFloat(kpiRes.cancelled_value || 0);
-    const totalCOGM = parseFloat(kpiRes.total_cogm || 0);
-    const netExternalSales = grossSales - returnsValue - cancelledValue;
+    const { kpis, monthlyTrend, divisionSplit, topStates, topCrops, topDealers, salesByStateIntensity } = await analytics.getSummaryData(whereClause, sqlParams);
 
-    // 2. Monthly sales trend (PostgreSQL to_char format)
-    const trendSql = `
-      SELECT
-        to_char(sd.invoice_date, 'YYYY-MM') AS sortKey,
-        SUM(sd.sales_amount_inr) AS value
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification = 'GROSS_SALE'
-      GROUP BY sortKey
-      ORDER BY sortKey
-    `;
-    const trendRes = await dbAll(trendSql, sqlParams);
-    const monthlyTrend = trendRes.map(t => ({
-      sortKey: t.sortkey, // pg returns lowercase column names
-      label: formatMonthLabel(t.sortkey),
-      value: parseFloat(t.value || 0)
-    }));
-
-    // 3. Division Split
-    const divSql = `
-      SELECT
-        m.division AS label,
-        SUM(sd.sales_amount_inr) AS value
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification = 'GROSS_SALE'
-      GROUP BY label
-    `;
-    const DIVISION_LABELS = { VG: 'Vegetables (VG)', FC: 'Field Crops (FC)', HY: 'Hybrid (HY)', FV: 'Fruits & Veg (FV)' };
-    const divRes = await dbAll(divSql, sqlParams);
-    const divisionSplit = divRes.map(d => ({
-      label: DIVISION_LABELS[d.label] || d.label || 'Other',
-      value: parseFloat(d.value || 0)
-    }));
-
-
-    // 4. Top Rankings
-    const rankedBaseSql = (field, limits) => `
-      SELECT
-        ${field} AS label,
-        SUM(sd.sales_amount_inr) AS value
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification = 'GROSS_SALE'
-      GROUP BY label
-      ORDER BY value DESC
-      LIMIT ${limits}
-    `;
-    
-    const topStatesRes = await dbAll(rankedBaseSql('t.state', 10), sqlParams);
-    const topStates = topStatesRes.map(s => ({ label: s.label, value: parseFloat(s.value || 0) }));
-
-    const topCropsRes = await dbAll(rankedBaseSql('m.crop', 10), sqlParams);
-    const topCrops = topCropsRes.map(c => ({ label: c.label, value: parseFloat(c.value || 0) }));
-    
-    const dealersSql = `
-      SELECT
-        c.customer_name AS label,
-        c.customer_id AS customerId,
-        SUM(sd.sales_amount_inr) AS value
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification = 'GROSS_SALE'
-      GROUP BY label, customerId
-      ORDER BY value DESC
-      LIMIT 10
-    `;
-    const topDealersRes = await dbAll(dealersSql, sqlParams);
-    const topDealers = topDealersRes.map(d => ({
-      label: d.label,
-      customerId: d.customerid,
-      value: parseFloat(d.value || 0)
-    }));
-
-    // 5. Sales by State intensity
-    const intensitySql = `
-      SELECT
-        t.state AS label,
-        SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS value,
-        SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END) AS returns
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification IN ('GROSS_SALE', 'RETURN')
-      GROUP BY label
-      ORDER BY value DESC
-    `;
-    const salesByStateIntensityRes = await dbAll(intensitySql, sqlParams);
-    const salesByStateIntensity = salesByStateIntensityRes.map(s => ({
-      label: s.label,
-      value: parseFloat(s.value || 0),
-      returns: parseFloat(s.returns || 0)
-    }));
-
-    // 6. Dataset health (PostgreSQL MAX Date format verification)
-    const health = await dbGet('SELECT COUNT(*) AS total_rows, MAX(invoice_date) AS last_updated FROM sales_data') || {};
-    const fYears = await dbAll('SELECT DISTINCT fy_code FROM sales_data');
-    const fyCoverage = fYears.map(f => f.fy_code);
-
-    const rawLastUpdated = health.last_updated;
-    let lastUpdatedFormatted = 'N/A';
-    if (rawLastUpdated) {
-      try {
-        lastUpdatedFormatted = new Date(rawLastUpdated).toISOString().split('T')[0];
-      } catch (e) {
-        lastUpdatedFormatted = String(rawLastUpdated);
-      }
-    }
+    // Validate the calculated KPIs before sending to frontend
+    validateAnalyticsKPIs({
+      grossSales: kpis.grossSales,
+      returnsValue: kpis.returnsValue,
+      cancelledValue: kpis.cancelledValue,
+      netExternalSales: kpis.netExternalSales
+    });
 
     res.json({
       kpis: {
-        grossSales,
-        returnsValue,
-        cancelledValue,
-        netExternalSales,
-        totalCOGM,
-        netSalesRuleNote: "Provisional: Gross - Returns - Cancelled, excludes IPT"
+        grossSales: kpis.grossSales,
+        returnsValue: kpis.returnsValue,
+        cancelledValue: kpis.cancelledValue,
+        netExternalSales: kpis.netExternalSales,
+        totalCOGM: kpis.totalCOGM,
+        returnRate: kpis.grossSales > 0 ? parseFloat(((kpis.returnsValue / kpis.grossSales) * 100).toFixed(2)) : 0
       },
       monthlyTrend,
       divisionSplit,
@@ -240,10 +74,10 @@ export async function getSummary(req, res) {
       topDealers,
       salesByStateIntensity,
       datasetHealth: {
-        totalRows: parseInt(health.total_rows || 0, 10),
-        lastUpdated: lastUpdatedFormatted,
-        fyCoverage,
-        fy2526Missing: !fyCoverage.includes('FY2526')
+        totalRows: parseInt(kpis.total_rows || 0, 10),
+        lastUpdated: kpis.lastUpdatedFormatted,
+        fyCoverage: kpis.fyCoverage,
+        fy2526Missing: !kpis.fyCoverage.includes('FY2526')
       }
     });
   } catch (err) {
@@ -257,28 +91,24 @@ export async function getSummary(req, res) {
  */
 export async function getSalesPerformance(req, res) {
   try {
+    req.query.datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
     const division = req.query.division || 'VG';
     const filters = { ...req.query, division }; 
     const { whereClause, sqlParams } = buildFilterClause(filters);
 
     // 1. KPIs
-    const kpiSql = `
-      SELECT
-        SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS gross_sales,
-        SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END) AS returns_value,
-        SUM(CASE WHEN bt.classification='CANCELLED' THEN sd.sales_amount_inr ELSE 0 END) AS cancelled_value
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause}
-    `;
-    const kpis = await dbGet(kpiSql, sqlParams) || {};
-    const grossSales = parseFloat(kpis.gross_sales || 0);
-    const returnsValue = parseFloat(kpis.returns_value || 0);
-    const cancelledValue = parseFloat(kpis.cancelled_value || 0);
-    const netExternalSales = grossSales - returnsValue - cancelledValue;
+    const { kpis } = await analytics.getSalesKPIs(whereClause, sqlParams);
+    const grossSales = kpis.grossSales;
+    const returnsValue = kpis.returnsValue;
+    const cancelledValue = kpis.cancelledValue;
+    const netExternalSales = Math.max(0, grossSales - returnsValue - cancelledValue);
+
+    validateAnalyticsKPIs({
+      grossSales,
+      returnsValue,
+      cancelledValue,
+      netExternalSales
+    });
 
     // 2. Trend
     const trendSql = `
@@ -340,7 +170,8 @@ export async function getSalesPerformance(req, res) {
       kpis: {
         grossSales,
         returnsValue,
-        netExternalSales
+        netExternalSales,
+        returnRate: grossSales > 0 ? parseFloat(((returnsValue / grossSales) * 100).toFixed(2)) : 0
       },
       monthlyTrend,
       channels,
@@ -357,6 +188,7 @@ export async function getSalesPerformance(req, res) {
  */
 export async function getGeography(req, res) {
   try {
+    req.query.datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
     const { whereClause, sqlParams } = buildFilterClause(req.query);
 
     // 1. States overview list
@@ -471,6 +303,7 @@ export async function getGeography(req, res) {
  */
 export async function getProductPerformance(req, res) {
   try {
+    req.query.datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
     const division = req.query.division || 'VG';
     const filters = { ...req.query, division };
     const { whereClause, sqlParams } = buildFilterClause(filters);
@@ -490,7 +323,7 @@ export async function getProductPerformance(req, res) {
       ORDER BY value DESC
     `;
     const cropsRes = await dbAll(cropSql, sqlParams);
-    const crops = cropsRes.map(c => ({ name: c.name, value: parseFloat(c.value || 0) }));
+    const crops = cropsRes.map(c => ({ label: c.name, value: parseFloat(c.value || 0) }));
 
     // 2. Own vs Trade
     const ownSql = `
@@ -532,7 +365,7 @@ export async function getProductPerformance(req, res) {
         ORDER BY value DESC
       `;
       const varietiesRes = await dbAll(varSql, cropParams);
-      const varieties = varietiesRes.map(v => ({ name: v.name, value: parseFloat(v.value || 0) }));
+      const varieties = varietiesRes.map(v => ({ label: v.name, value: parseFloat(v.value || 0) }));
 
       // Materials (SKUs)
       const matSql = `
@@ -605,30 +438,28 @@ export async function getProductPerformance(req, res) {
  */
 export async function getReturns(req, res) {
   try {
+    req.query.datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
     const { whereClause, sqlParams } = buildFilterClause(req.query);
+    logger.info({ endpoint: 'returns', filters: req.query });
 
     // 1. KPIs
-    const kpiSql = `
-      SELECT
-        SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS gross_sales,
-        SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END) AS returns_value
-      FROM sales_data sd
-      JOIN billing_types bt ON sd.billing_type = bt.billing_type
-      JOIN materials m ON sd.material_code = m.material_code
-      JOIN territories t ON sd.territory_id = t.territory_id
-      JOIN customers c ON sd.customer_id = c.customer_id
-      ${whereClause}
-    `;
-    const kpis = await dbGet(kpiSql, sqlParams) || {};
-    const grossSales = parseFloat(kpis.gross_sales || 0);
-    const returnsValue = parseFloat(kpis.returns_value || 0);
-    const returnRate = grossSales > 0 ? parseFloat((returnsValue / grossSales * 100).toFixed(2)) : 0;
+    const { kpis } = await analytics.getReturnsKPIs(whereClause, sqlParams);
+    const grossSales = kpis.grossSales;
+    const returnsValue = kpis.returnsValue;
+    const returnRate = grossSales > 0 ? parseFloat(((returnsValue / grossSales) * 100).toFixed(2)) : 0;
 
-    // 2. Returns trend
+    validateAnalyticsKPIs({
+        grossSales,
+        returnsValue,
+        cancelledValue: 0,
+        netExternalSales: Math.max(0, grossSales - returnsValue)
+      });
+
+    // 2. Returns trend — ABS in SQL is the source of truth
     const trendSql = `
       SELECT
         to_char(sd.invoice_date, 'YYYY-MM') AS sortKey,
-        SUM(sd.sales_amount_inr) AS value
+        ABS(COALESCE(SUM(sd.sales_amount_inr), 0)) AS value
       FROM sales_data sd
       JOIN billing_types bt ON sd.billing_type = bt.billing_type
       JOIN materials m ON sd.material_code = m.material_code
@@ -642,14 +473,14 @@ export async function getReturns(req, res) {
     const returnsTrend = trendRes.map(t => ({
       sortKey: t.sortkey,
       label: formatMonthLabel(t.sortkey),
-      value: parseFloat(t.value || 0)
+      value: parseFloat(t.value || 0)   // already positive from SQL
     }));
 
-    // 3. Channels split
+    // 3. Channels split — ABS in SQL
     const chanSql = `
       SELECT
         c.dist_channel AS label,
-        SUM(sd.sales_amount_inr) AS value
+        ABS(COALESCE(SUM(sd.sales_amount_inr), 0)) AS value
       FROM sales_data sd
       JOIN billing_types bt ON sd.billing_type = bt.billing_type
       JOIN materials m ON sd.material_code = m.material_code
@@ -674,20 +505,20 @@ export async function getReturns(req, res) {
       JOIN customers c ON sd.customer_id = c.customer_id
       ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification IN ('GROSS_SALE', 'RETURN')
       GROUP BY name
-      ORDER BY returns DESC
+      ORDER BY ABS(SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END)) DESC
     `;
     const stateRes = await dbAll(stateSql, sqlParams);
     const states = stateRes.map(s => ({
-      name: s.name,
-      returns: parseFloat(s.returns || 0),
-      rate: parseFloat(s.gross || 0) > 0 ? parseFloat((parseFloat(s.returns) / parseFloat(s.gross) * 100).toFixed(2)) : 0
+      label: s.name,
+      value: Math.abs(parseFloat(s.returns || 0)),
+      rate: parseFloat(s.gross || 0) > 0 ? parseFloat((Math.abs(parseFloat(s.returns)) / parseFloat(s.gross) * 100).toFixed(2)) : 0
     }));
 
-    // 5. Crops return values ranking
+    // 5. Crops return values ranking — ABS in SQL
     const cropSql = `
       SELECT
         m.crop AS name,
-        SUM(sd.sales_amount_inr) AS value
+        ABS(COALESCE(SUM(sd.sales_amount_inr), 0)) AS value
       FROM sales_data sd
       JOIN billing_types bt ON sd.billing_type = bt.billing_type
       JOIN materials m ON sd.material_code = m.material_code
@@ -695,10 +526,10 @@ export async function getReturns(req, res) {
       JOIN customers c ON sd.customer_id = c.customer_id
       ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification = 'RETURN'
       GROUP BY name
-      ORDER BY value DESC
+      ORDER BY ABS(COALESCE(SUM(sd.sales_amount_inr), 0)) DESC
     `;
     const cropsRes = await dbAll(cropSql, sqlParams);
-    const crops = cropsRes.map(c => ({ name: c.name, value: parseFloat(c.value || 0) }));
+    const crops = cropsRes.map(c => ({ label: c.name, value: parseFloat(c.value || 0) }));
 
     res.json({
       kpis: {
@@ -811,3 +642,34 @@ export async function getImportQuality(req, res) {
     res.status(500).json({ error: 'Failed to retrieve batch quality summary' });
   }
 }
+
+/**
+ * GET /api/dashboard/comparison
+ * Returns YoY / QoQ / MoM comparative statistics for a given dataset.
+ */
+export async function getComparison(req, res) {
+  try {
+    const datasetId = await getTargetDatasetId(req.query.datasetId || req.query.activeDatasetId);
+    const { 
+      primaryYear, 
+      comparisonYear, 
+      mode 
+    } = req.query;
+    
+    if (!primaryYear || !comparisonYear) {
+      return res.status(400).json({ error: 'Missing primaryYear or comparisonYear' });
+    }
+    
+    const result = await computeComparison({
+      ...req.query,
+      datasetId,
+      mode: mode || 'yoy'
+    });
+    
+    res.json(result);
+  } catch (err) {
+    console.error('Failed to compute comparative trend:', err);
+    res.status(500).json({ error: 'Failed to fetch comparison data', details: err.message });
+  }
+}
+

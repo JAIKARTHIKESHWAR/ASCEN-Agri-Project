@@ -87,6 +87,15 @@ Output a strict JSON object with this exact schema:
       "division": "VG" | "FC" | null,
       "distributionChannel": "Dealer" | "Distributor" | "Direct" | null
     }
+  },
+  "comparisonContext": {
+    "compareMode": "yoy" | "qoq" | "mom" | null,
+    "primaryYear": "FY2627" | "FY2425" | null,
+    "comparisonYear": "FY2627" | "FY2425" | null,
+    "primaryQuarter": 1 | 2 | 3 | 4 | null,
+    "comparisonQuarter": 1 | 2 | 3 | 4 | null,
+    "primaryMonth": 1..12 | null,
+    "comparisonMonth": 1..12 | null
   }
 }
 
@@ -121,8 +130,20 @@ Rules:
 - In the navigation object:
   1. Map navigateTo based on user's query topic (e.g., summary for overall stats, returns for return rates, product for crop-specific stats).
   2. Map section to the specific chart/card code corresponding to the visual card (e.g. sales-overview, top-states, crops-revenue, returns-by-state).
-  3. Extract all explicit or strongly implied filters (financialYear, crop, state, division, distributionChannel). If a crop name like 'cotton' is asked, extract it. If a state like 'tamil nadu' is asked, extract it. If a year like 'FY2627' is asked, extract it. Translate year text like "FY2627" or "FY26" or "FY 26-27" to standard value "FY2627".
-  4. Ensure crop and state filter values are in proper case (e.g., "Cotton", "Tamil Nadu").
+  3. Extract all explicit or strongly implied filters (financialYear, crop, state, division, distributionChannel). If a crop name like 'cotton' is asked, extract it. If a state like 'tamil nadu' is asked, extract it. If a year like 'FY2627' is asked, extract it. Translate year text to standard FY codes ONLY using these explicit patterns:
+      - 'FY26-27' | 'FY 26-27' | 'FY2026-2027' | 'FY 2026-2027' | 'FY2627' → 'FY2627'
+      - 'FY24-25' | 'FY 24-25' | 'FY2024-2025' | 'FY 2024-2025' | 'FY2425' → 'FY2425'
+      - 'this year' | 'current year' | 'current FY' → use the most recent fy_code in the data (default 'FY2627')
+      - 'last year' | 'previous year' | 'previous FY' → 'FY2425'
+      - Do NOT map a plain year like '2026' or '2024' alone to an FY code — it is ambiguous.
+  4. Ensure crop and state filter values are in proper case (e.g., 'Cotton', 'Tamil Nadu').
+  5. Indian Financial Year Quarter mapping (CRITICAL — use these month ranges in SQL, NOT calendar quarters):
+      - Q1 FY = Apr, May, Jun   → EXTRACT(MONTH ...) IN (4, 5, 6)
+      - Q2 FY = Jul, Aug, Sep   → EXTRACT(MONTH ...) IN (7, 8, 9)
+      - Q3 FY = Oct, Nov, Dec   → EXTRACT(MONTH ...) IN (10, 11, 12)
+      - Q4 FY = Jan, Feb, Mar   → EXTRACT(MONTH ...) IN (1, 2, 3)
+  6. If the user requests a specific time period (e.g. 'Q2 sales', 'April revenue', 'H1 performance'), apply it in the SQL WHERE clause using EXTRACT(YEAR ...) and the appropriate month IN (...) clause. Do NOT use EXTRACT(QUARTER ...) as PostgreSQL uses calendar quarters.
+  7. If the user explicitly compares two periods (e.g. 'compare Q2 this year vs Q2 last year', 'YoY growth', 'FY2627 vs FY2425'), emit a comparisonContext object with FY code strings (NOT raw calendar year integers).
 
 
 `;
