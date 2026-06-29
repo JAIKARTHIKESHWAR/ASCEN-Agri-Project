@@ -689,12 +689,13 @@ export const BarChart = React.memo(function BarChart({ data, xKey = 'label', yKe
 });
 
 // 4. Area Chart Component
-export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, fillColor = 'var(--color-sales-gross)' }) {
+export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', yKey = 'value', comparisonKey = null, height = 240, fillColor = 'var(--color-sales-gross)' }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
-  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0 });
+  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, label: '', value: 0, compValue: 0 });
   const containerRef = useRef(null);
   const dimensions = useContainerDimensions(containerRef);
   const gradientId = useMemo(() => "areaGradient_" + Math.random().toString(36).substr(2, 9), []);
+  const compGradientId = useMemo(() => "compAreaGradient_" + Math.random().toString(36).substr(2, 9), []);
 
   if (!data || data.length === 0) {
     return (
@@ -714,7 +715,7 @@ export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', y
 
   const xMax = Math.max(width - paddingLeft - paddingRight, 10);
   const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
-  const yValues = data.map(d => d[yKey]);
+  const yValues = [...data.map(d => d[yKey]), ...(comparisonKey ? data.map(d => d[comparisonKey]) : [])];
   const maxYVal = Math.max(...yValues, 1000) * 1.1;
   const minYVal = 0;
 
@@ -725,9 +726,21 @@ export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', y
     return { x, y, label: d[xKey], value: yVal };
   });
 
+  const compPoints = comparisonKey ? data.map((d, index) => {
+    const x = paddingLeft + (index / (data.length - 1 || 1)) * xMax;
+    const yVal = d[comparisonKey] || 0;
+    const y = paddingTop + yMax - ((yVal - minYVal) / (maxYVal - minYVal)) * yMax;
+    return { x, y, value: yVal };
+  }) : [];
+
   const pathD = points.reduce((acc, point, index) => (index === 0 ? `M ${point.x} ${point.y}` : `${acc} L ${point.x} ${point.y}`), '');
   const areaD = points.length > 0
     ? `${pathD} L ${points[points.length - 1].x} ${paddingTop + yMax} L ${points[0].x} ${paddingTop + yMax} Z`
+    : '';
+
+  const compPathD = comparisonKey ? compPoints.reduce((acc, point, index) => (index === 0 ? `M ${point.x} ${point.y}` : `${acc} L ${point.x} ${point.y}`), '') : '';
+  const compAreaD = comparisonKey && compPoints.length > 0
+    ? `${compPathD} L ${compPoints[compPoints.length - 1].x} ${paddingTop + yMax} L ${compPoints[0].x} ${paddingTop + yMax} Z`
     : '';
 
   const gridLines = [];
@@ -745,7 +758,8 @@ export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', y
       x: point.x,
       y: point.y - 15,
       label: point.label,
-      value: point.value
+      value: point.value,
+      compValue: comparisonKey ? data[index][comparisonKey] : undefined
     });
   };
 
@@ -789,10 +803,23 @@ export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', y
             <stop offset="0%" stopColor={fillColor} stopOpacity="0.25" />
             <stop offset="100%" stopColor={fillColor} stopOpacity="0.05" />
           </linearGradient>
+          {comparisonKey && (
+            <linearGradient id={compGradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--text-muted)" stopOpacity="0.2" />
+              <stop offset="100%" stopColor="var(--text-muted)" stopOpacity="0.02" />
+            </linearGradient>
+          )}
         </defs>
 
         <path d={areaD} fill={`url(#${gradientId})`} className="chart-area" fillOpacity={0.25} style={{ opacity: 1 }} />
         <path d={pathD} stroke={fillColor} className="chart-line" fill="none" />
+
+        {comparisonKey && (
+          <>
+            <path d={compAreaD} fill={`url(#${compGradientId})`} className="chart-area" fillOpacity={0.2} style={{ opacity: 1 }} />
+            <path d={compPathD} stroke="var(--text-muted)" strokeDasharray="3 3" strokeWidth={2} fill="none" />
+          </>
+        )}
 
         {points.map((pt, i) => (
           <circle
@@ -836,7 +863,14 @@ export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', y
           }}
         >
           <div style={{ fontWeight: '600' }}>{tooltip.label}</div>
-          <div style={{ color: fillColor, fontWeight: '700' }}>{formatCurrency(tooltip.value)}</div>
+          <div style={{ color: fillColor, fontWeight: '700' }}>
+            {comparisonKey ? 'Current: ' : ''}{formatCurrency(tooltip.value)}
+          </div>
+          {comparisonKey && (
+            <div style={{ color: 'var(--text-muted)', fontWeight: '700' }}>
+              Compare: {formatCurrency(tooltip.compValue)}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -844,7 +878,7 @@ export const AreaChart = React.memo(function AreaChart({ data, xKey = 'label', y
 });
 
 // 5. Heatmap Chart Component
-export function HeatmapChart({ data, xKey = 'label', yKey = 'value', height = 240 }) {
+export function HeatmapChart({ data, xKey = 'label', yKey = 'value', comparisonKey = null, height = 240 }) {
   if (!data || data.length === 0) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '180px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
@@ -853,6 +887,64 @@ export function HeatmapChart({ data, xKey = 'label', yKey = 'value', height = 24
     );
   }
 
+  // If comparisonKey is active, we color by variance percentage!
+  if (comparisonKey) {
+    const items = data.map(item => {
+      const primaryVal = item[yKey] || 0;
+      const compVal = item[comparisonKey] || 0;
+      const diff = primaryVal - compVal;
+      const pct = compVal > 0 ? (diff / compVal) * 100 : (primaryVal > 0 ? 100 : 0);
+      return { ...item, primaryVal, compVal, diff, pct };
+    });
+
+    const maxPct = Math.max(...items.map(d => Math.abs(d.pct)), 1);
+
+    const getCompareHeatColor = (pct) => {
+      const ratio = Math.min(Math.abs(pct) / maxPct, 1);
+      if (pct < 0) {
+        return `rgba(220, 38, 38, ${0.1 + ratio * 0.7})`; // decline (red/orange)
+      } else {
+        return `rgba(22, 163, 74, ${0.1 + ratio * 0.7})`; // growth (green)
+      }
+    };
+
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', minHeight: `${height}px`, alignContent: 'start' }}>
+        {items.map((item) => {
+          const formattedPct = item.pct > 0 ? `+${item.pct.toFixed(1)}%` : `${item.pct.toFixed(1)}%`;
+          const fontColor = Math.abs(item.pct) / maxPct > 0.5 ? 'white' : 'var(--text-primary)';
+          return (
+            <div
+              key={item[xKey]}
+              style={{
+                backgroundColor: getCompareHeatColor(item.pct),
+                color: fontColor,
+                borderRadius: '12px',
+                padding: '12px 10px',
+                minHeight: '84px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.05)',
+                border: '1px solid var(--border-color)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '700' }}>{item[xKey]}</span>
+                <span style={{ fontSize: '0.7rem', fontWeight: '700', color: item.pct >= 0 ? 'var(--color-sales-net)' : 'var(--color-returns)' }}>{formattedPct}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.65rem', marginTop: '6px' }}>
+                <span>Curr: {formatCurrency(item.primaryVal)}</span>
+                <span style={{ opacity: 0.8 }}>Prev: {formatCurrency(item.compVal)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Non-comparison mode
   const maxValue = Math.max(...data.map(d => d[yKey]), 1);
   const minValue = Math.min(...data.map(d => d[yKey]));
   const range = Math.max(maxValue - minValue, 1);
@@ -893,7 +985,7 @@ export function HeatmapChart({ data, xKey = 'label', yKey = 'value', height = 24
 }
 
 // 6. Waterfall Chart Component
-export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 240, accentColor = 'var(--color-sales-gross)' }) {
+export function WaterfallChart({ data, xKey = 'label', yKey = 'value', comparisonKey = null, height = 240, accentColor = 'var(--color-sales-gross)' }) {
   const containerRef = useRef(null);
   const dimensions = useContainerDimensions(containerRef);
 
@@ -905,27 +997,44 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
     );
   }
 
+  // Calculate items and values (variance if comparison mode is active)
+  const items = data.map(item => {
+    const val = item[yKey] || 0;
+    const compVal = comparisonKey ? (item[comparisonKey] || 0) : null;
+    const value = comparisonKey ? (val - compVal) : val;
+    return { ...item, value, originalVal: val, compVal };
+  });
+
   const width = dimensions.width || 800;
   const viewHeight = dimensions.height || height;
 
-  const paddingLeft = 55;
+  const paddingLeft = 60;
   const paddingRight = 24;
   const paddingTop = 24;
   const paddingBottom = 44;
   const xMax = Math.max(width - paddingLeft - paddingRight, 10);
   const yMax = Math.max(viewHeight - paddingTop - paddingBottom, 10);
 
-  const values = data.map(item => item[yKey]);
+  const values = items.map(item => item.value);
   const total = values.reduce((sum, value) => sum + value, 0);
-  const maxValue = Math.max(...values, total) * 1.15;
 
-  const barCount = data.length;
+  let cumulative = 0;
+  const bounds = [0, total];
+  items.forEach(item => {
+    cumulative += item.value;
+    bounds.push(cumulative);
+  });
+  const maxBound = Math.max(...bounds, 1000) * 1.15;
+  const minBound = Math.min(...bounds, 0) * 1.15;
+  const valueRange = Math.max(maxBound - minBound, 1);
+
+  const barCount = items.length + 1; // +1 for Net Diff / Total bar
   const totalBarWidth = xMax / barCount;
   const barWidth = totalBarWidth * 0.64;
 
-  let cumulative = 0;
-  const bars = data.map((item, index) => {
-    const value = item[yKey];
+  cumulative = 0;
+  const bars = items.map((item, index) => {
+    const value = item.value;
     const start = cumulative;
     cumulative += value;
     return {
@@ -937,11 +1046,21 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
     };
   });
 
-  const scaleY = (value) => paddingTop + yMax - (value / maxValue) * yMax;
+  // Add the final Total / Net Diff bar
+  bars.push({
+    label: comparisonKey ? 'Net Diff' : 'Total',
+    value: total,
+    start: 0,
+    end: total,
+    x: paddingLeft + items.length * totalBarWidth + (totalBarWidth - barWidth) / 2
+  });
+
+  const scaleY = (value) => paddingTop + yMax - ((value - minBound) / valueRange) * yMax;
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
       <svg viewBox={`0 0 ${width} ${viewHeight}`} style={{ width: '100%', height: '100%', display: 'block' }}>
+        <line x1={paddingLeft} y1={scaleY(0)} x2={width - paddingRight} y2={scaleY(0)} className="chart-grid-line" style={{ strokeDasharray: '3 3', opacity: 0.6 }} />
         <line x1={paddingLeft} y1={paddingTop + yMax} x2={width - paddingRight} y2={paddingTop + yMax} className="chart-axis-line" />
         <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={paddingTop + yMax} className="chart-axis-line" />
 
@@ -950,7 +1069,13 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
           const y2 = scaleY(bar.end);
           const barHeight = Math.max(Math.abs(y2 - y1), 2);
           const y = Math.min(y1, y2);
-          const fill = index === bars.length - 1 ? accentColor : 'var(--color-sales-net)';
+          
+          let fill = 'var(--color-sales-net)'; // default green for increase
+          if (index === bars.length - 1) {
+            fill = accentColor; // total bar color
+          } else if (bar.value < 0) {
+            fill = 'var(--color-returns)'; // red for decrease
+          }
 
           return (
             <g key={bar.label}>

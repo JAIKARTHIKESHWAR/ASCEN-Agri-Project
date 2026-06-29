@@ -9,19 +9,40 @@ import { buildFilterClause } from './filterBuilder.js';
  */
 function parseYear(val) {
   if (!val) return NaN;
-  const str = String(val).trim();
-  if (/^\d{4}$/.test(str)) {
-    return parseInt(str, 10);
+  let str = String(val).trim().replace(/\s+/g, ''); // strip all spaces
+  
+  // 1. Matches "FY2024-2025" or "FY2024" -> extracts 2024
+  const matchFY4 = str.match(/FY(20\d{2})/i);
+  if (matchFY4) {
+    return parseInt(matchFY4[1], 10);
   }
-  const m = str.match(/^FY(\d{2})(\d{2})$/i);
-  if (m) {
-    return 2000 + parseInt(m[1], 10);
+  
+  // 2. Matches "FY24-25" -> extracts 24 -> returns 2024
+  const matchFY2Dash = str.match(/FY(\d{2})-\d{2}/i);
+  if (matchFY2Dash) {
+    return 2000 + parseInt(matchFY2Dash[1], 10);
   }
-  const m2 = str.match(/^FY(\d{2})$/i);
-  if (m2) {
-    return 2000 + parseInt(m2[1], 10);
+  
+  // 3. Matches "FY2425" -> extracts 24 -> returns 2024
+  const matchFY22 = str.match(/FY(\d{2})(\d{2})/i);
+  if (matchFY22) {
+    return 2000 + parseInt(matchFY22[1], 10);
   }
-  return parseInt(str, 10);
+  
+  // 4. Matches "FY24" -> extracts 24 -> returns 2024
+  const matchFY2 = str.match(/FY(\d{2})/i);
+  if (matchFY2) {
+    return 2000 + parseInt(matchFY2[1], 10);
+  }
+  
+  // 5. Matches bare 4-digit year like "2024"
+  const matchBare4 = str.match(/(\d{4})/);
+  if (matchBare4) {
+    return parseInt(matchBare4[1], 10);
+  }
+  
+  const parsed = parseInt(str, 10);
+  return isNaN(parsed) ? NaN : parsed;
 }
 
 export async function computeComparison(filters) {
@@ -133,9 +154,9 @@ export async function computeComparison(filters) {
 
   // KPI queries (ensure F2, RE, S1 are correctly matched and aggregated with absolute values where appropriate)
   const kpiSelect = `
-    COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
-    ABS(COALESCE(SUM(CASE WHEN sd.billing_type='RE' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
-    ABS(COALESCE(SUM(CASE WHEN sd.billing_type='S1' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
+    COALESCE(SUM(CASE WHEN sd.billing_type IN ('F2', 'ZF2', 'ZIF2') THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
+    ABS(COALESCE(SUM(CASE WHEN sd.billing_type IN ('RE', 'ZRE', 'ZIRE') THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
+    ABS(COALESCE(SUM(CASE WHEN sd.billing_type IN ('S1', 'ZS1') THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
     COALESCE(COUNT(DISTINCT sd.customer_id), 0) AS customer_count,
     COALESCE(COUNT(DISTINCT sd.invoice_id),  0) AS invoice_count
   `;
@@ -206,7 +227,7 @@ export async function computeComparison(filters) {
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type IN ('F2', 'ZF2', 'ZIF2')
         AND ${fyExpression} IN (${pYear}, ${cYear})
       GROUP BY idx
       ORDER BY idx
@@ -240,7 +261,7 @@ export async function computeComparison(filters) {
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type IN ('F2', 'ZF2', 'ZIF2')
         AND (
           (${fyExpression} = ${pYear} AND EXTRACT(MONTH FROM sd.invoice_date) IN (${pMonths.join(',')}))
           OR (${fyExpression} = ${cYear} AND EXTRACT(MONTH FROM sd.invoice_date) IN (${cMonths.join(',')}))
@@ -267,7 +288,7 @@ export async function computeComparison(filters) {
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type IN ('F2', 'ZF2', 'ZIF2')
         AND (
           (${fyExpression} = ${pYear} AND EXTRACT(MONTH FROM sd.invoice_date) = ${pm}) OR
           (${fyExpression} = ${cYear} AND EXTRACT(MONTH FROM sd.invoice_date) = ${cm})
