@@ -48,14 +48,14 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
           const data = await res.json();
           setSessionId(data.sessionId);
           localStorage.setItem('copilot_session_id', data.sessionId);
-          
+
           // Fetch history for the active session
           const histRes = await fetch(`/api/copilot/history/${data.sessionId}`);
           if (histRes.ok) {
             const histData = await histRes.json();
             if (histData.messages && histData.messages.length > 0) {
               setMessages(histData.messages);
-              
+
               // Restore dashboard filters/views from historical context
               if (histData.session && histData.session.context) {
                 const ctx = histData.session.context;
@@ -202,7 +202,7 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
       const formData = new FormData();
       formData.append('file', audioBlob, 'voice_query.wav');
       formData.append('session_id', sessionId || '');
-      
+
       // Load current filters context
       const requestFilters = {};
       if (currentFilters) {
@@ -282,7 +282,7 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
         const data = await res.json();
         setSessionId(data.sessionId);
         localStorage.setItem('copilot_session_id', data.sessionId);
-        
+
         // Clear chat list and set default greeting
         setMessages([
           {
@@ -406,7 +406,7 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                   const isUser = msg.sender === 'user' || msg.role === 'user';
                   const contentText = msg.text || msg.content;
                   const displayTime = msg.timestamp || (msg.created_at ? new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '');
-                  
+
                   // Support both metadata and raw navNotice string
                   const navNotice = msg.navNotice || (msg.metadata?.navigateTo ? `Navigated to ${msg.metadata.navigateTo} (${msg.metadata.section || 'sales-overview'})` : null);
 
@@ -416,7 +416,7 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                         {contentText}
                         {navNotice && (
                           <div style={{ marginTop: '8px', fontSize: '0.7rem', fontStyle: 'italic', color: 'var(--color-sales-net)', fontWeight: 'bold' }}>
-                             
+
                           </div>
                         )}
                       </div>

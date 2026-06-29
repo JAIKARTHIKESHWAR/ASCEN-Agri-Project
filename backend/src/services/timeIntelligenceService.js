@@ -40,14 +40,6 @@ export async function computeComparison(filters) {
   // Build the base filter clause and params
   const { whereClause: baseWhere, sqlParams } = buildFilterClause(cleanFilters);
 
-  console.log('Comparison Request Params:', {
-    pYear,
-    cYear,
-    mode,
-    baseWhere,
-    sqlParams
-  });
-
   // Indian FY quarter -> calendar month mapping
   // Q1 = Apr-Jun (4-6), Q2 = Jul-Sep (7-9),
   // Q3 = Oct-Dec (10-12), Q4 = Jan-Mar (1-3)
@@ -117,11 +109,11 @@ export async function computeComparison(filters) {
 
   const skipComparison = !compHasData;
 
-  // KPI queries (ensure F2, RE, S1 are correctly matched and aggregated with absolute values where appropriate using classification)
+  // KPI queries (ensure F2, RE, S1 are correctly matched and aggregated with absolute values where appropriate)
   const kpiSelect = `
-    COALESCE(SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
-    ABS(COALESCE(SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
-    ABS(COALESCE(SUM(CASE WHEN bt.classification='CANCELLED' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
+    COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
+    ABS(COALESCE(SUM(CASE WHEN sd.billing_type='RE' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
+    ABS(COALESCE(SUM(CASE WHEN sd.billing_type='S1' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
     COALESCE(COUNT(DISTINCT sd.customer_id), 0) AS customer_count,
     COALESCE(COUNT(DISTINCT sd.invoice_id),  0) AS invoice_count
   `;
@@ -148,9 +140,6 @@ export async function computeComparison(filters) {
         `, sqlParams)
   ]);
   const compKpis = compKpisRaw || {};
-
-  console.log('Primary KPIs Raw:', primaryKpis);
-  console.log('Comparison KPIs Raw:', compKpis);
 
   const pGross     = parseFloat(primaryKpis?.gross_sales     || 0);
   const pReturns   = parseFloat(primaryKpis?.returns_value   || 0);
@@ -195,7 +184,7 @@ export async function computeComparison(filters) {
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} bt.classification = 'GROSS_SALE'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
         AND sd.fy_code IN ('${pYear}', '${cYear}')
       GROUP BY idx
       ORDER BY idx
@@ -229,7 +218,7 @@ export async function computeComparison(filters) {
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} bt.classification = 'GROSS_SALE'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
         AND (
           (sd.fy_code = '${pYear}' AND EXTRACT(MONTH FROM sd.invoice_date) IN (${pMonths.join(',')}))
           OR (sd.fy_code = '${cYear}' AND EXTRACT(MONTH FROM sd.invoice_date) IN (${cMonths.join(',')}))
@@ -256,7 +245,7 @@ export async function computeComparison(filters) {
       JOIN materials m ON sd.material_code = m.material_code
       JOIN territories t ON sd.territory_id = t.territory_id
       JOIN customers c ON sd.customer_id = c.customer_id
-      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} bt.classification = 'GROSS_SALE'
+      ${baseWhere ? `${baseWhere} AND` : 'WHERE'} sd.billing_type = 'F2'
         AND (
           (sd.fy_code = '${pYear}' AND EXTRACT(MONTH FROM sd.invoice_date) = ${pm}) OR
           (sd.fy_code = '${cYear}' AND EXTRACT(MONTH FROM sd.invoice_date) = ${cm})
@@ -276,8 +265,8 @@ export async function computeComparison(filters) {
   const divQuery = `
     SELECT
       m.division AS label,
-      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
-      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+      SUM(CASE WHEN (${primaryPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
     FROM sales_data_raw sd
     JOIN billing_types bt ON sd.billing_type = bt.billing_type
     JOIN materials m ON sd.material_code = m.material_code
@@ -297,8 +286,8 @@ export async function computeComparison(filters) {
   const stateQuery = `
     SELECT
       t.state AS label,
-      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
-      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+      SUM(CASE WHEN (${primaryPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
     FROM sales_data_raw sd
     JOIN billing_types bt ON sd.billing_type = bt.billing_type
     JOIN materials m ON sd.material_code = m.material_code
@@ -320,8 +309,8 @@ export async function computeComparison(filters) {
   const cropQuery = `
     SELECT
       m.crop AS label,
-      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
-      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+      SUM(CASE WHEN (${primaryPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
     FROM sales_data_raw sd
     JOIN billing_types bt ON sd.billing_type = bt.billing_type
     JOIN materials m ON sd.material_code = m.material_code
@@ -343,8 +332,8 @@ export async function computeComparison(filters) {
   const dealerQuery = `
     SELECT
       c.customer_name AS label,
-      SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
-      SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
+      SUM(CASE WHEN (${primaryPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS primary_val,
+      SUM(CASE WHEN (${compPeriodClause}) AND sd.billing_type = 'F2' THEN sd.sales_amount_inr ELSE 0 END) AS comp_val
     FROM sales_data_raw sd
     JOIN billing_types bt ON sd.billing_type = bt.billing_type
     JOIN materials m ON sd.material_code = m.material_code
@@ -366,8 +355,8 @@ export async function computeComparison(filters) {
   const returnsQuery = `
     SELECT
       t.state AS label,
-      ABS(SUM(CASE WHEN (${primaryPeriodClause}) AND bt.classification = 'RETURN' THEN sd.sales_amount_inr ELSE 0 END)) AS primary_val,
-      ABS(SUM(CASE WHEN (${compPeriodClause}) AND bt.classification = 'RETURN' THEN sd.sales_amount_inr ELSE 0 END)) AS comp_val
+      ABS(SUM(CASE WHEN (${primaryPeriodClause}) AND sd.billing_type = 'RE' THEN sd.sales_amount_inr ELSE 0 END)) AS primary_val,
+      ABS(SUM(CASE WHEN (${compPeriodClause}) AND sd.billing_type = 'RE' THEN sd.sales_amount_inr ELSE 0 END)) AS comp_val
     FROM sales_data_raw sd
     JOIN billing_types bt ON sd.billing_type = bt.billing_type
     JOIN materials m ON sd.material_code = m.material_code

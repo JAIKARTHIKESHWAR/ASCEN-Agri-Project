@@ -505,9 +505,9 @@ function ExecutiveSummary({
           <div className="chart-container">
             {activeSalesChart === 'line' && <LineChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
             {activeSalesChart === 'bar' && <BarChart data={chartData} yKey={mainValKey} comparisonKey={compKey} barColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'area' && <AreaChart data={chartData} yKey={mainValKey} fillColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'heatmap' && <HeatmapChart data={chartData} />}
-            {activeSalesChart === 'waterfall' && <WaterfallChart data={chartData} />}
+            {activeSalesChart === 'area' && <AreaChart data={chartData} yKey={mainValKey} comparisonKey={compKey} fillColor="var(--color-sales-gross)" />}
+            {activeSalesChart === 'heatmap' && <HeatmapChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
+            {activeSalesChart === 'waterfall' && <WaterfallChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
           </div>
         </div>
 
