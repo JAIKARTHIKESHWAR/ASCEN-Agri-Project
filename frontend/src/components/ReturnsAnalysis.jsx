@@ -74,7 +74,7 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
   })).sort((a, b) => b.value - a.value);
 
   // 4. Returns by Channel
-  const channelReturnsMap = { Dealer: 0, Distributor: 0, Direct: 0 };
+  const channelReturnsMap = {};
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
@@ -181,7 +181,7 @@ export default function ReturnsAnalysis({ filteredData, chartPreferences = {}, s
         </div>
       </section>
 
-      <section className="dashboard-grid">
+      <section className="dashboard-grid" style={{ alignItems: 'start' }}>
         {/* Returns by State */}
         <div id="returns-by-state" className="card">
           <div className="card-header">

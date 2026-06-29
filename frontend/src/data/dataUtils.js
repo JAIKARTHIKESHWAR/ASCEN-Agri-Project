@@ -1,8 +1,3 @@
-// Core selectors and data filtering helpers for Acsen Sales Analytics.
-// Hardcoded mock data arrays have been deleted. Real-time data is loaded dynamically from the PostgreSQL backend.
-
-export const mockSalesData = []; // Default empty fallback
-
 /**
  * Filter data dynamically based on active filter selectors
  */

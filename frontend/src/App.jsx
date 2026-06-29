@@ -9,7 +9,7 @@ import ReturnsAnalysis from './components/ReturnsAnalysis';
 import TransactionDrillDown from './components/TransactionDrillDown';
 import AskAI from './components/AskAI';
 import CopilotWidget from './components/CopilotWidget';
-import { mockSalesData, getFilteredData, calculateKPIs } from './data/mockSalesData';
+import { getFilteredData, calculateKPIs } from './data/dataUtils';
 
 const INITIAL_FILTERS = {
   fy: '',
@@ -69,8 +69,8 @@ function App() {
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [isDark, setIsDark] = useState(false); // Default to light monochrome (white UI)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [dataset, setDataset] = useState(mockSalesData);
-  const [datasetName, setDatasetName] = useState('Default SAP Mock Data');
+  const [dataset, setDataset] = useState([]);
+  const [datasetName, setDatasetName] = useState('Loading database...');
   const [showFilters, setShowFilters] = useState(false);
   const [activeSection, setActiveSection] = useState(null);
   const [chartPreferences, setChartPreferences] = useState({});
@@ -227,10 +227,18 @@ function App() {
             }));
             setDataset(mappedItems);
             setDatasetName('Production Database (PostgreSQL)');
+          } else {
+            setDataset([]);
+            setDatasetName('Database Empty');
           }
+        } else {
+          setDataset([]);
+          setDatasetName('Database Connection Error');
         }
       } catch (err) {
-        console.warn("Backend database not connected, using default mock dataset:", err);
+        console.warn("Backend database connection failed:", err);
+        setDataset([]);
+        setDatasetName('Database Connection Error');
       }
     }
     fetchInitialDataset();
@@ -349,7 +357,7 @@ function App() {
           cogm: item.cogm
         }));
         setDataset(mappedItems);
-        setDatasetName(items.length > 0 ? sourceName : 'Default SAP Mock Data (Reset)');
+        setDatasetName(items.length > 0 ? sourceName : 'Database Empty (Reset)');
         setFilters(INITIAL_FILTERS);
       }
     } catch (err) {
@@ -362,7 +370,7 @@ function App() {
       const res = await fetch('/api/data/reset', { method: 'POST' });
       if (res.ok) {
         showToast("Done! All active metrics have been soft-reset to default zero.", 'success');
-        await reloadDatasetFromBackend('Default SAP Mock Data (Reset)');
+        await reloadDatasetFromBackend('Database Empty (Reset)');
       } else {
         const errorData = await res.json();
         showToast("Reset failed: " + (errorData.error || "Unknown error"), 'error');

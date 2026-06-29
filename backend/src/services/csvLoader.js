@@ -31,125 +31,125 @@ function normalizeHeader(header = '') {
  */
 const COLUMN_ALIASES = {
   // ── Invoice ────────────────────────────────────────────────────────────────
-  invoiceid:                'invoice_id',
-  invoiceno:                'invoice_id',
-  invoicenumber:            'invoice_id',
-  billingdocument:          'invoice_id',
-  billingdoc:               'invoice_id',
-  billingdocno:             'invoice_id',
-  billingdocnumber:         'invoice_id',
+  invoiceid: 'invoice_id',
+  invoiceno: 'invoice_id',
+  invoicenumber: 'invoice_id',
+  billingdocument: 'invoice_id',
+  billingdoc: 'invoice_id',
+  billingdocno: 'invoice_id',
+  billingdocnumber: 'invoice_id',
 
   // ── Date ──────────────────────────────────────────────────────────────────
-  invoicedate:              'invoice_date',
-  billingdate:              'invoice_date',
-  date:                     'invoice_date',
-  documentdate:             'invoice_date',
+  invoicedate: 'invoice_date',
+  billingdate: 'invoice_date',
+  date: 'invoice_date',
+  documentdate: 'invoice_date',
 
   // ── Billing type ──────────────────────────────────────────────────────────
-  billingtype:              'billing_type',
-  type:                     'billing_type',
+  billingtype: 'billing_type',
+  type: 'billing_type',
   // "Billing Type Descrp." → after strip of dot → "billingtypedescrp"
-  billingtypedescrp:        'billing_type_desc',
-  billingtypedescription:   'billing_type_desc',
-  billingtypedesc:          'billing_type_desc',
-  typedescription:          'billing_type_desc',
-  typedesc:                 'billing_type_desc',
-  description:              'billing_type_desc',
+  billingtypedescrp: 'billing_type_desc',
+  billingtypedescription: 'billing_type_desc',
+  billingtypedesc: 'billing_type_desc',
+  typedescription: 'billing_type_desc',
+  typedesc: 'billing_type_desc',
+  description: 'billing_type_desc',
 
   // ── Distribution channel ──────────────────────────────────────────────────
-  distributionchannel:      'dist_channel',
-  distchannel:              'dist_channel',
-  channel:                  'dist_channel',
+  distributionchannel: 'dist_channel',
+  distchannel: 'dist_channel',
+  channel: 'dist_channel',
 
   // ── Customer ──────────────────────────────────────────────────────────────
-  customerid:               'customer_id',
-  customercode:             'customer_id',
-  customerno:               'customer_id',   // ← Excel: "Customer No."
-  customernumber:           'customer_id',
-  custno:                   'customer_id',
-  custid:                   'customer_id',
-  customername:             'customer_name',
-  custname:                 'customer_name',
-  customer:                 'customer_name',
+  customerid: 'customer_id',
+  customercode: 'customer_id',
+  customerno: 'customer_id',   // ← Excel: "Customer No."
+  customernumber: 'customer_id',
+  custno: 'customer_id',
+  custid: 'customer_id',
+  customername: 'customer_name',
+  custname: 'customer_name',
+  customer: 'customer_name',
 
   // ── Division ──────────────────────────────────────────────────────────────
-  division:                 'division',
-  div:                      'division',
+  division: 'division',
+  div: 'division',
 
   // ── Crop / Material ───────────────────────────────────────────────────────
-  crop:                     'crop',
-  cropname:                 'crop',          // ← Excel: "Crop Name"
-  variety:                  'variety',
-  varietyname:              'variety',       // ← Excel: "Variety Name"
-  materialcode:             'material_code',
-  matcode:                  'material_code',
-  material:                 'material_code',
-  materialdescription:      'material_desc',
-  materialname:             'material_desc', // ← Excel: "Material Name"
-  materialdesc:             'material_desc',
-  matdesc:                  'material_desc',
-  matname:                  'material_desc',
+  crop: 'crop',
+  cropname: 'crop',          // ← Excel: "Crop Name"
+  variety: 'variety',
+  varietyname: 'variety',       // ← Excel: "Variety Name"
+  materialcode: 'material_code',
+  matcode: 'material_code',
+  material: 'material_code',
+  materialdescription: 'material_desc',
+  materialname: 'material_desc', // ← Excel: "Material Name"
+  materialdesc: 'material_desc',
+  matdesc: 'material_desc',
+  matname: 'material_desc',
 
   // ── Sales unit / own-trade ────────────────────────────────────────────────
-  salesunit:                'sales_unit',
-  sunit:                    'sales_unit',
-  unit:                     'sales_unit',
-  uom:                      'sales_unit',
-  owntrade:                 'own_trade',
-  ownortrade:               'own_trade',
-  owntradecategory:         'own_trade',
-  owntradecat:              'own_trade',
+  salesunit: 'sales_unit',
+  sunit: 'sales_unit',
+  unit: 'sales_unit',
+  uom: 'sales_unit',
+  owntrade: 'own_trade',
+  ownortrade: 'own_trade',
+  owntradecategory: 'own_trade',
+  owntradecat: 'own_trade',
 
   // ── Territory ─────────────────────────────────────────────────────────────
-  state:                    'state',
-  statename:                'state',
-  territory:                'territory',
-  territoryname:            'territory',     // ← Excel: "Territory Name"
-  terrname:                 'territory',
+  state: 'state',
+  statename: 'state',
+  territory: 'territory',
+  territoryname: 'territory',     // ← Excel: "Territory Name"
+  terrname: 'territory',
   // "Territory ID" col — keep for reference but do NOT use as DB territory_id
   // (DB territory_id is an auto-generated serial from the territories table)
-  territoryid:              'territory_ref',
-  terrid:                   'territory_ref',
+  territoryid: 'territory_ref',
+  terrid: 'territory_ref',
 
   // ── Sales hierarchy ───────────────────────────────────────────────────────
-  am:                       'am',
-  areamanager:              'am',
-  areaman:                  'am',
-  rbm:                      'rbm',
-  regionalbusinessmanager:  'rbm',
-  dbm:                      'dbm',
-  districtbusinessmanager:  'dbm',
+  am: 'am',
+  areamanager: 'am',
+  areaman: 'am',
+  rbm: 'rbm',
+  regionalbusinessmanager: 'rbm',
+  dbm: 'dbm',
+  districtbusinessmanager: 'dbm',
 
   // ── Metrics ───────────────────────────────────────────────────────────────
-  quantity:                 'qty',
-  qty:                      'qty',
-  salesprice:               'sales_price',
-  salespriceinr:            'sales_price',   // ← Excel: "Sales Price INR"
-  salespriceperinr:         'sales_price',
-  price:                    'sales_price',
-  rate:                     'sales_price',
-  salesamountinr:           'sales_amount_inr',
-  salesamount:              'sales_amount_inr',
-  salesamt:                 'sales_amount_inr',
-  salesamtinr:              'sales_amount_inr',
-  amountinr:                'sales_amount_inr',
-  amount:                   'sales_amount_inr',
-  revenue:                  'sales_amount_inr',
-  netsalesinr:              'sales_amount_inr',
-  netsales:                 'sales_amount_inr',
-  cogm:                     'cogm',
-  costofgoodsmanufactured:  'cogm',
-  cogs:                     'cogm',
+  quantity: 'qty',
+  qty: 'qty',
+  salesprice: 'sales_price',
+  salespriceinr: 'sales_price',   // ← Excel: "Sales Price INR"
+  salespriceperinr: 'sales_price',
+  price: 'sales_price',
+  rate: 'sales_price',
+  salesamountinr: 'sales_amount_inr',
+  salesamount: 'sales_amount_inr',
+  salesamt: 'sales_amount_inr',
+  salesamtinr: 'sales_amount_inr',
+  amountinr: 'sales_amount_inr',
+  amount: 'sales_amount_inr',
+  revenue: 'sales_amount_inr',
+  netsalesinr: 'sales_amount_inr',
+  netsales: 'sales_amount_inr',
+  cogm: 'cogm',
+  costofgoodsmanufactured: 'cogm',
+  cogs: 'cogm',
 
   // ── Season / FY ───────────────────────────────────────────────────────────
-  seasoncode:               'season_code',
-  season:                   'season_code',
-  fycode:                   'fy_code',
-  fy:                       'fy_code',
-  financialyear:            'fy_code',
-  fiscalyear:               'fy_code',
+  seasoncode: 'season_code',
+  season: 'season_code',
+  fycode: 'fy_code',
+  fy: 'fy_code',
+  financialyear: 'fy_code',
+  fiscalyear: 'fy_code',
   // Excel "Year" column = raw calendar year number (2024, 2025, …)
-  year:                     'fy_code',
+  year: 'fy_code',
 };
 
 /**
@@ -184,7 +184,7 @@ function parseExcelDate(value) {
 
     // DD/MM/YYYY
     const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (dmy) return `${dmy[3]}-${dmy[1].padStart(2,'0')}-${dmy[2].padStart(2,'0')}`;
+    if (dmy) return `${dmy[3]}-${dmy[1].padStart(2, '0')}-${dmy[2].padStart(2, '0')}`;
 
     // MM-DD-YYYY or YYYY-MM-DD (native Date handles both)
     const d = new Date(s);
@@ -222,24 +222,14 @@ function deriveFinancialYear(value) {
   const year = parseInt(s, 10);
   if (!isNaN(year) && year > 1900 && year < 2200) {
     const startYr = year % 100;
-    const endYr   = (year + 1) % 100;
-    return `FY${String(startYr).padStart(2,'0')}${String(endYr).padStart(2,'0')}`;
+    const endYr = (year + 1) % 100;
+    return `FY${String(startYr).padStart(2, '0')}${String(endYr).padStart(2, '0')}`;
   }
 
   return null; // caller will derive from invoice_date
 }
 
-/**
- * Derive season from invoice month (Indian agricultural calendar).
- * Kharif: Jun–Oct  |  Rabi: Nov–Mar  |  Summer: Apr–May
- */
-function deriveSeason(invoiceDate) {
-  if (!invoiceDate) return 'N/A';
-  const month = new Date(invoiceDate).getMonth() + 1; // 1-12
-  if (month >= 6 && month <= 10) return 'Kharif';
-  if (month >= 11 || month <= 3) return 'Rabi';
-  return 'Summer';
-}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CSV PARSER (quote-aware)
@@ -417,41 +407,40 @@ export async function importCSV(filePath, originalFileName, fileHash) {
       try {
         // ── Mandatory fields ──────────────────────────────────────────────
         const invoiceId = row.invoice_id ? String(row.invoice_id).trim() : null;
-        const dateRaw   = row.invoice_date;
+        const dateRaw = row.invoice_date;
 
         if (!invoiceId) throw new Error('Missing invoice ID');
         const date = parseExcelDate(dateRaw);
         if (!date) throw new Error(`Invalid or missing date: "${dateRaw}"`);
 
         // ── String fields ─────────────────────────────────────────────────
-        const billingType  = row.billing_type      ? String(row.billing_type).trim()      : 'F2';
-        const billingDesc  = row.billing_type_desc ? String(row.billing_type_desc).trim() : 'Standard Invoice';
-        const distChannel  = row.dist_channel      ? String(row.dist_channel).trim()      : 'Dealer';
-        const customerId   = row.customer_id       ? String(row.customer_id).trim()       : 'CUST-000';
-        const customerName = row.customer_name     ? String(row.customer_name).trim()     : 'Unknown Customer';
-        const division     = row.division          ? String(row.division).trim().toUpperCase() : 'VG';
-        const crop         = row.crop              ? String(row.crop).trim()              : 'Unknown Crop';
-        const variety      = row.variety           ? String(row.variety).trim()           : 'Unknown Variety';
-        const salesUnit    = row.sales_unit        ? String(row.sales_unit).trim()        : 'Packets';
-        const ownTrade     = row.own_trade         ? String(row.own_trade).trim()         : 'Own';
-        const materialCode = row.material_code     ? String(row.material_code).trim()     : 'MAT-000';
-        const materialDesc = row.material_desc     ? String(row.material_desc).trim()     : 'Unknown Material';
-        const state        = row.state             ? String(row.state).trim()             : 'Unknown State';
-        const territory    = row.territory         ? String(row.territory).trim()         : 'Unknown Territory';
-        const amName       = row.am                ? String(row.am).trim()                : null;
-        const rbmName      = row.rbm               ? String(row.rbm).trim()               : null;
-        const dbmName      = row.dbm               ? String(row.dbm).trim()               : null;
-        // ── Season Code — auto-derive if missing or 'NaN' ────────────────
+        const billingType = row.billing_type ? String(row.billing_type).trim() : 'F2';
+        const billingDesc = row.billing_type_desc ? String(row.billing_type_desc).trim() : 'Standard Invoice';
+        const distChannel = row.dist_channel ? String(row.dist_channel).trim() : 'Dealer';
+        const customerId = row.customer_id ? String(row.customer_id).trim() : 'CUST-000';
+        const customerName = row.customer_name ? String(row.customer_name).trim() : 'Unknown Customer';
+        const division = row.division ? String(row.division).trim().toUpperCase() : 'VG';
+        const crop = row.crop ? String(row.crop).trim() : 'Unknown Crop';
+        const variety = row.variety ? String(row.variety).trim() : 'Unknown Variety';
+        const salesUnit = row.sales_unit ? String(row.sales_unit).trim() : 'Packets';
+        const ownTrade = row.own_trade ? String(row.own_trade).trim() : 'Own';
+        const materialCode = row.material_code ? String(row.material_code).trim() : 'MAT-000';
+        const materialDesc = row.material_desc ? String(row.material_desc).trim() : 'Unknown Material';
+        const state = row.state ? String(row.state).trim() : 'Unknown State';
+        const territory = row.territory ? String(row.territory).trim() : 'Unknown Territory';
+        const amName = row.am ? String(row.am).trim() : null;
+        const rbmName = row.rbm ? String(row.rbm).trim() : null;
+        const dbmName = row.dbm ? String(row.dbm).trim() : null;
+        // ── Season Code — use raw value or default to 'N/A' ────────────────
         let seasonCode = (row.season_code && String(row.season_code).trim() !== 'NaN')
           ? String(row.season_code).trim()
-          : null;
-        if (!seasonCode) seasonCode = deriveSeason(date);
+          : 'N/A';
 
         // ── Numeric fields (strip commas, parse float) ────────────────────
-        const qty            = Math.round(parseNumeric(row.qty));
-        const salesPrice     = parseNumeric(row.sales_price);
+        const qty = Math.round(parseNumeric(row.qty));
+        const salesPrice = parseNumeric(row.sales_price);
         const salesAmountINR = parseNumeric(row.sales_amount_inr) || (qty * salesPrice);
-        const cogm           = parseNumeric(row.cogm)             || (salesAmountINR * 0.7);
+        const cogm = parseNumeric(row.cogm) || (salesAmountINR * 0.7);
 
         // ── FY Code: prefer explicit value → deriveFinancialYear → derive from date ──
         let fyCode = deriveFinancialYear(row.fy_code);
@@ -462,8 +451,8 @@ export async function importCSV(filePath, originalFileName, fileHash) {
             const yr = pd.getFullYear();
             const mo = pd.getMonth(); // 0-based
             const startYr = mo >= 3 ? yr % 100 : (yr - 1) % 100;
-            const endYr   = mo >= 3 ? (yr + 1) % 100 : yr % 100;
-            fyCode = `FY${String(startYr).padStart(2,'0')}${String(endYr).padStart(2,'0')}`;
+            const endYr = mo >= 3 ? (yr + 1) % 100 : yr % 100;
+            fyCode = `FY${String(startYr).padStart(2, '0')}${String(endYr).padStart(2, '0')}`;
           } else {
             fyCode = 'FY2627';
           }
@@ -472,7 +461,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
         // Seed FY lookup
         await dbRun(
           'INSERT INTO financial_years (fy_code, fy_name) VALUES ($1, $2) ON CONFLICT (fy_code) DO NOTHING',
-          [fyCode, `Financial Year 20${fyCode.substring(2,4)}-${fyCode.substring(4,6)}`]
+          [fyCode, `Financial Year 20${fyCode.substring(2, 4)}-${fyCode.substring(4, 6)}`]
         );
 
         // Seed Customer
@@ -497,11 +486,11 @@ export async function importCSV(filePath, originalFileName, fileHash) {
         const billingClassification = (() => {
           const code = (billingType || '').toUpperCase();
           // Gross invoice sales (standard + SAP Z-prefixed variants)
-          if (code === 'F2'   || code === 'ZF2'  || code === 'ZIF2') return 'GROSS_SALE';
+          if (code === 'F2' || code === 'ZF2' || code === 'ZIF2') return 'GROSS_SALE';
           // Returns / credit memos
-          if (code === 'RE'   || code === 'ZRE'  || code === 'ZIRE') return 'RETURN';
+          if (code === 'RE' || code === 'ZRE' || code === 'ZIRE') return 'RETURN';
           // Cancellations
-          if (code === 'S1'   || code === 'ZS1')                     return 'CANCELLED';
+          if (code === 'S1' || code === 'ZS1') return 'CANCELLED';
           // Everything else (ZSTO, IPT, etc.) = stock transfer
           return 'STOCK_TRANSFER';
         })();
@@ -515,9 +504,9 @@ export async function importCSV(filePath, originalFileName, fileHash) {
 
 
         // Resolve employees
-        const amId       = await getEmployeeId(amName,  'AM');
-        const rbmId      = await getEmployeeId(rbmName, 'RBM');
-        const dbmId      = await getEmployeeId(dbmName, 'DBM');
+        const amId = await getEmployeeId(amName, 'AM');
+        const rbmId = await getEmployeeId(rbmName, 'RBM');
+        const dbmId = await getEmployeeId(dbmName, 'DBM');
         const inchargeId = dbmId;
 
         // Resolve territory
@@ -546,7 +535,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
           ON CONFLICT (invoice_id, batch_id) DO NOTHING`,
           [invoiceId, date, billingType, customerId, materialCode,
-           territoryId, qty, salesUnit, salesAmountINR, cogm, seasonCode, fyCode, batchId]
+            territoryId, qty, salesUnit, salesAmountINR, cogm, seasonCode, fyCode, batchId]
         );
 
         importedCount++;
@@ -557,7 +546,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
             'INSERT INTO import_rejected_rows (batch_id, reject_reason, raw_row) VALUES ($1, $2, $3)',
             [batchId, err.message, JSON.stringify(row)]
           );
-        } catch (_) {}
+        } catch (_) { }
       }
     }
 

@@ -28,7 +28,7 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
   const divData = filteredData.filter(item => item.division === activeDiv);
 
   // Group by channel
-  const channelMap = { Dealer: 0, Distributor: 0, Direct: 0 };
+  const channelMap = {};
   divData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
@@ -42,10 +42,10 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
   }));
 
   // Group by season (FC only)
-  const seasonMap = { Kharif: 0, Rabi: 0, Summer: 0 };
+  const seasonMap = {};
   divData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
-    if ((bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') && item.seasonCode !== 'N/A') {
+    if ((bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') && item.seasonCode && item.seasonCode !== 'N/A') {
       seasonMap[item.seasonCode] = (seasonMap[item.seasonCode] || 0) + item.salesAmountINR;
     }
   });
@@ -53,7 +53,7 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
   const seasonChartData = Object.keys(seasonMap).map(se => ({
     label: se,
     value: seasonMap[se]
-  }));
+  })).sort((a, b) => b.value - a.value);
 
   // Group by month
   const monthlyMap = {};
@@ -232,7 +232,7 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
             <div className="card-header">
               <div>
                 <h3 className="card-title">Season-wise Sales Contribution</h3>
-                <p className="card-subtitle">Field Crops Division seasonal performance (Kharif, Rabi, Summer)</p>
+                <p className="card-subtitle">Field Crops Division seasonal performance from uploaded transactions</p>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
@@ -250,7 +250,7 @@ export default function SalesPerformance({ filteredData, chartPreferences = {}, 
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span className="legend-color" style={{ backgroundColor: colors[idx % colors.length] }} />
-                      <span className="kpi-title">{item.label} Season</span>
+                      <span className="kpi-title">{item.label}</span>
                     </div>
                     <span className="kpi-value" style={{ fontSize: '1.5rem', color: colors[idx % colors.length] }}>
                       {formatCurrency(item.value)}

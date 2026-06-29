@@ -206,7 +206,7 @@ export default function GeographyRegion({ filteredData, setFilters, setActiveTab
               style={{
                 alignItems: 'center',
                 justifyContent: 'center',
-                height: '100%',
+                height: '10%',
                 minHeight: '300px',
                 color: 'var(--text-secondary)',
                 borderStyle: 'dashed',

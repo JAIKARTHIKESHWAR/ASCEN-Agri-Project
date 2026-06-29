@@ -59,21 +59,21 @@ export default function ExecutiveSummary({ filteredData, kpis, setActiveTab, cha
 
 
   // 4. Division split for Donut Chart
-  const divMap = { VG: 0, FC: 0 };
+  const divMap = {};
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
       divMap[item.division] = (divMap[item.division] || 0) + item.salesAmountINR;
     }
   });
-  const divisionData = [
-    { label: 'Vegetables (VG)', value: divMap.VG },
-    { label: 'Field Crops (FC)', value: divMap.FC }
-  ];
+  const divisionData = Object.keys(divMap).map(key => ({
+    label: key === 'VG' ? 'Vegetables (VG)' : key === 'FC' ? 'Field Crops (FC)' : key,
+    value: divMap[key]
+  }));
 
   // Calculate division totals for dynamic state contribution calculations
-  const divTotalVG = divMap.VG;
-  const divTotalFC = divMap.FC;
+  const divTotalVG = divMap.VG || 0;
+  const divTotalFC = divMap.FC || 0;
 
   const getStatePrimaryDivisionTotal = (stateName) => {
     let vgSales = 0;

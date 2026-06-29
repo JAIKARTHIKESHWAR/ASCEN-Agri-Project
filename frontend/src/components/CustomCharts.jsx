@@ -41,11 +41,17 @@ export function useContainerDimensions(ref) {
       resizeObserver.observe(ref.current);
     }
 
+    // Force a re-measurement after a short delay to handle initial layout settling
+    const timer = setTimeout(() => {
+      handleResize();
+    }, 100);
+
     return () => {
       window.removeEventListener('resize', handleResize);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
+      clearTimeout(timer);
     };
   }, [ref]);
 
@@ -107,7 +113,7 @@ export function DonutChart({ data, title }) {
                 fill="transparent"
                 stroke={color}
                 strokeWidth={isHovered ? strokeWidth + 3 : strokeWidth}
-                strokeDasharray={`${strokeLength} ${circumference}`}
+                strokeDasharray={`${strokeLength} ${circumference - strokeLength}`}
                 strokeDashoffset={strokeOffset}
                 transform={`rotate(-90 ${center} ${center})`}
                 style={{
@@ -210,7 +216,7 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
   }
 
-  const width = dimensions.width || 600;
+  const width = dimensions.width || 800;
   const viewHeight = dimensions.height || height;
 
   const paddingLeft = 60;
@@ -268,7 +274,7 @@ export function LineChart({ data, xKey = 'label', yKey = 'value', height = 240 }
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
-      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
+      <svg viewBox={`0 0 ${width} ${viewHeight}`} style={{ width: '100%', height: '100%', display: 'block' }}>
         {/* Grid lines */}
         {gridLines.map((line, i) => (
           <g key={i}>
@@ -402,7 +408,7 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No comparison data available</div>;
   }
 
-  const width = dimensions.width || 600;
+  const width = dimensions.width || 800;
   const viewHeight = dimensions.height || height;
 
   const paddingLeft = 60;
@@ -450,7 +456,7 @@ export function BarChart({ data, xKey = 'label', yKey = 'value', height = 240, b
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
-      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
+      <svg viewBox={`0 0 ${width} ${viewHeight}`} style={{ width: '100%', height: '100%', display: 'block' }}>
         {/* Grid lines */}
         {gridLines.map((line, i) => (
           <g key={i}>
@@ -570,7 +576,7 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
   }
 
-  const width = dimensions.width || 600;
+  const width = dimensions.width || 800;
   const viewHeight = dimensions.height || height;
 
   const paddingLeft = 60;
@@ -622,7 +628,7 @@ export function AreaChart({ data, xKey = 'label', yKey = 'value', height = 240, 
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
-      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
+      <svg viewBox={`0 0 ${width} ${viewHeight}`} style={{ width: '100%', height: '100%', display: 'block' }}>
         {gridLines.map((line, i) => (
           <g key={i}>
             <line x1={paddingLeft} y1={line.y} x2={width - paddingRight} y2={line.y} className="chart-grid-line" />
@@ -763,7 +769,7 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
     return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No trend data for selected filters</div>;
   }
 
-  const width = dimensions.width || 600;
+  const width = dimensions.width || 800;
   const viewHeight = dimensions.height || height;
 
   const paddingLeft = 55;
@@ -799,7 +805,7 @@ export function WaterfallChart({ data, xKey = 'label', yKey = 'value', height = 
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: `${height}px` }}>
-      <svg style={{ width: '100%', height: '100%', display: 'block' }}>
+      <svg viewBox={`0 0 ${width} ${viewHeight}`} style={{ width: '100%', height: '100%', display: 'block' }}>
         <line x1={paddingLeft} y1={paddingTop + yMax} x2={width - paddingRight} y2={paddingTop + yMax} className="chart-axis-line" />
         <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={paddingTop + yMax} className="chart-axis-line" />
 
@@ -934,7 +940,7 @@ export function SunburstChart({ data, height = 240 }) {
               fill="transparent"
               stroke={colors[index % colors.length]}
               strokeWidth={strokeWidth}
-              strokeDasharray={`${length} ${circumference}`}
+              strokeDasharray={`${length} ${circumference - length}`}
               strokeDashoffset={strokeOffset}
               transform={`rotate(-90 ${center} ${center})`}
             />
