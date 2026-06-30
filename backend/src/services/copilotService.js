@@ -122,6 +122,80 @@ function injectMissingFilters(sql, mergedFilters) {
 }
 
 /**
+ * Classifies a user's question into one of four memory modes:
+ * - CONTEXTUAL_FOLLOWUP: Contains pronouns or follow-up phrases.
+ * - AMBIGUOUS_SHORT_QUERY: Short query containing only metric keywords.
+ * - FILTER_UPDATE: Short query containing only a known entity (State, Crop, Division, FY).
+ * - INDEPENDENT: A complete new analytical request.
+ */
+async function classifyMemoryMode(question, sessionContext) {
+  const qClean = question.trim().toLowerCase();
+  const words = qClean.split(/\s+/).filter(Boolean);
+
+  // 1. Contextual Follow-up
+  const followUpPatterns = [
+    /\b(it|its|that|those|them|this)\b/i,
+    /\bwhat about\b/i,
+    /\bhow about\b/i,
+    /\band in\b/i,
+    /\bfor that\b/i,
+    /\bcompare with\b/i,
+    /\bsame crop\b/i,
+    /\bsame state\b/i,
+    /\bagain\b/i,
+    /\balso\b/i
+  ];
+  if (followUpPatterns.some(pattern => pattern.test(qClean))) {
+    return 'contextual_followup';
+  }
+
+  // 2. Ambiguous Short Query
+  const metricKeywords = ['revenue', 'sales', 'profit', 'quantity', 'growth', 'contribution', 'trend', 'how much', 'sales value', 'returns value', 'cancelled value'];
+  const hasMetricKeyword = metricKeywords.some(kw => qClean.includes(kw));
+  if (words.length <= 4 && hasMetricKeyword) {
+    return 'ambiguous_short_query';
+  }
+
+  // 3. Filter Update
+  if (words.length <= 3) {
+    let entityCandidate = qClean;
+    const prepMatch = qClean.match(/^(in|for|under|at|to|on)\s+(.+)$/);
+    if (prepMatch) {
+      entityCandidate = prepMatch[2];
+    }
+
+    // Check Division
+    const divUpper = entityCandidate.toUpperCase();
+    if (['VG', 'FC', 'CM', 'VEGETABLES', 'FIELD CROPS', 'COMMON'].includes(divUpper)) {
+      return 'filter_update';
+    }
+
+    // Check Financial Year
+    if (/^fy\s*\d{4}$/i.test(entityCandidate) || /^fy\s*\d{2}-\d{2}$/i.test(entityCandidate)) {
+      return 'filter_update';
+    }
+
+    // Check State in DB
+    try {
+      const stateRow = await dbGet("SELECT 1 FROM territories WHERE state ILIKE $1 LIMIT 1", [entityCandidate]);
+      if (stateRow) return 'filter_update';
+    } catch (e) {
+      console.error("Error checking state in DB:", e);
+    }
+
+    // Check Crop in DB
+    try {
+      const cropRow = await dbGet("SELECT 1 FROM materials WHERE crop ILIKE $1 LIMIT 1", [entityCandidate]);
+      if (cropRow) return 'filter_update';
+    } catch (e) {
+      console.error("Error checking crop in DB:", e);
+    }
+  }
+
+  return 'independent';
+}
+
+/**
  * Shared service layer processing BI Copilot question statefully
  */
 export async function processQuestion({ question, sessionId, filters }) {
@@ -149,6 +223,15 @@ export async function processQuestion({ question, sessionId, filters }) {
   let sessionContext = typeof session.context === 'string' ? JSON.parse(session.context) : (session.context || {});
   if (!sessionContext.filters) sessionContext.filters = {};
   if (!sessionContext.chartPreferences) sessionContext.chartPreferences = {};
+  if (!sessionContext.memory) {
+    sessionContext.memory = {
+      lastIntent: null,
+      lastMetric: null,
+      lastResolvedQuestion: null,
+      lastFilters: {},
+      lastEntity: null
+    };
+  }
 
   // 2. Save user message to database (sanitized)
   let userMsgId = null;
@@ -249,21 +332,31 @@ export async function processQuestion({ question, sessionId, filters }) {
     return responsePayload;
   }
 
-  // 4. Load the last 5 user/assistant exchanges (10 messages total)
-  let history = [];
-  if (session.id !== '00000000-0000-0000-0000-000000000000') {
-    try {
-      history = await dbAll(
-        "SELECT role, content FROM copilot_messages WHERE session_id = $1 AND id != $2 ORDER BY created_at ASC LIMIT 10",
-        [session.id, userMsgId || '00000000-0000-0000-0000-000000000000']
-      );
-    } catch (e) {
-      console.error('Failed to load chat history:', e);
-    }
-  }
+  // 4. Classify Memory Mode
+  const memoryMode = await classifyMemoryMode(question, sessionContext);
+  console.log(`[Memory Mode Classifier] Classified question "${question}" as: ${memoryMode}`);
 
+  let history = [];
+  let resolvedQuestion = question;
+  
   // 5. Merge incoming filter contexts
   const incomingFilters = filters || {};
+  const dashboardFilters = {
+    datasetId,
+    fy: incomingFilters.fy_code || incomingFilters.financialYear || null,
+    crop: incomingFilters.crop || null,
+    state: incomingFilters.state || null,
+    division: incomingFilters.division || null,
+    distributionChannel: incomingFilters.dist_channel || incomingFilters.distributionChannel || null
+  };
+
+  // Clean nulls
+  Object.keys(dashboardFilters).forEach(key => {
+    if (dashboardFilters[key] === null) {
+      delete dashboardFilters[key];
+    }
+  });
+
   const mergedFilters = {
     datasetId,
     fy: incomingFilters.fy_code || incomingFilters.financialYear || sessionContext.filters.financialYear || null,
@@ -280,9 +373,106 @@ export async function processQuestion({ question, sessionId, filters }) {
     }
   });
 
+  let activeFiltersForQuery = { ...mergedFilters };
+
+  if (memoryMode === 'contextual_followup') {
+    // Contextual Follow-up: Pass the last 4 messages of history to the LLM
+    if (session.id !== '00000000-0000-0000-0000-000000000000') {
+      try {
+        history = await dbAll(
+          "SELECT role, content FROM copilot_messages WHERE session_id = $1 AND id != $2 ORDER BY created_at ASC LIMIT 4",
+          [session.id, userMsgId || '00000000-0000-0000-0000-000000000000']
+        );
+      } catch (e) {
+        console.error('Failed to load chat history:', e);
+      }
+    }
+    activeFiltersForQuery = {
+      ...sessionContext.memory.lastFilters,
+      ...mergedFilters
+    };
+  } else if (memoryMode === 'filter_update') {
+    // Filter Update: Reuse previous intent and metric, replace specific filter
+    let entityCandidate = question.trim().toLowerCase();
+    const prepMatch = entityCandidate.match(/^(in|for|under|at|to|on)\s+(.+)$/i);
+    if (prepMatch) {
+      entityCandidate = prepMatch[2];
+    }
+
+    const divUpper = entityCandidate.toUpperCase();
+    let detectedFilter = {};
+    if (['VG', 'FC', 'CM', 'VEGETABLES', 'FIELD CROPS', 'COMMON'].includes(divUpper)) {
+      let mappedDiv = 'VG';
+      if (divUpper.startsWith('FC') || divUpper.includes('FIELD')) mappedDiv = 'FC';
+      if (divUpper.startsWith('CM') || divUpper.includes('COMMON')) mappedDiv = 'CM';
+      detectedFilter = { division: mappedDiv };
+    } else if (/^fy\s*\d{4}$/i.test(entityCandidate) || /^fy\s*\d{2}-\d{2}$/i.test(entityCandidate)) {
+      let fyClean = entityCandidate.replace(/[^0-9]/g, '');
+      if (fyClean.length === 4) fyClean = 'FY' + fyClean;
+      detectedFilter = { fy: fyClean };
+    } else {
+      const stateRow = await dbGet("SELECT state FROM territories WHERE state ILIKE $1 LIMIT 1", [entityCandidate]);
+      if (stateRow) {
+        detectedFilter = { state: stateRow.state };
+      } else {
+        const cropRow = await dbGet("SELECT crop FROM materials WHERE crop ILIKE $1 LIMIT 1", [entityCandidate]);
+        if (cropRow) {
+          detectedFilter = { crop: cropRow.crop };
+        }
+      }
+    }
+
+    // Merge into lastFilters
+    sessionContext.memory.lastFilters = {
+      ...sessionContext.memory.lastFilters,
+      ...detectedFilter
+    };
+
+    // Reconstruct the question using lastResolvedQuestion
+    if (sessionContext.memory.lastResolvedQuestion) {
+      resolvedQuestion = `${sessionContext.memory.lastResolvedQuestion} (focused on ${Object.values(detectedFilter)[0] || entityCandidate})`;
+    }
+    
+    activeFiltersForQuery = {
+      ...sessionContext.memory.lastFilters
+    };
+  } else if (memoryMode === 'ambiguous_short_query') {
+    // Ambiguous Short Query: Keep previous intent and filters, update metric
+    activeFiltersForQuery = {
+      ...sessionContext.memory.lastFilters
+    };
+    if (sessionContext.memory.lastResolvedQuestion) {
+      resolvedQuestion = `${question} of the ${sessionContext.memory.lastResolvedQuestion}`;
+    }
+  } else {
+    // INDEPENDENT
+    history = [];
+    // Clear ephemeral navigation/drill-down filters (crop, state) but keep persistent dropdown filters (fy, division, channel)
+    activeFiltersForQuery = {
+      datasetId: dashboardFilters.datasetId,
+      fy: dashboardFilters.fy || null,
+      division: dashboardFilters.division || null,
+      distributionChannel: dashboardFilters.distributionChannel || null
+    };
+    
+    // Clean nulls
+    Object.keys(activeFiltersForQuery).forEach(key => {
+      if (activeFiltersForQuery[key] === null) {
+        delete activeFiltersForQuery[key];
+      }
+    });
+    console.log('[Copilot] Cleared ephemeral navigation filters for independent query');
+  }
+
+  // Debug logging
+  console.log('[Copilot] Memory Mode:', memoryMode);
+  console.log('[Copilot] Dashboard Filters:', dashboardFilters);
+  console.log('[Copilot] Memory Filters:', sessionContext.memory ? sessionContext.memory.lastFilters : null);
+  console.log('[Copilot] Effective Filters:', activeFiltersForQuery);
+
   // 6. Invoke LLM Translator
-  console.log(`Translating question statefully: "${question}" with context filters:`, mergedFilters);
-  const queryPlan = await translateQuestionToPlan(question, mergedFilters, history);
+  console.log(`Translating question statefully: "${resolvedQuestion}" with context filters:`, activeFiltersForQuery);
+  const queryPlan = await translateQuestionToPlan(resolvedQuestion, activeFiltersForQuery, history);
   console.log("AI Query Plan:", queryPlan);
 
   // 7. Verify Out of Scope
@@ -640,6 +830,36 @@ export async function processQuestion({ question, sessionId, filters }) {
     delete updatedChartPreferences[targetSection];
   }
 
+  // Update structured memory
+  let detectedEntity = null;
+  if (resultRows.length > 0) {
+    const topRow = resultRows[0];
+    for (const key of Object.keys(topRow)) {
+      const val = topRow[key];
+      if (val && isNaN(Number(val))) {
+        const keyLower = key.toLowerCase();
+        if (keyLower.includes('crop') || keyLower.includes('material_desc') || keyLower.includes('material_name')) {
+          detectedEntity = { type: 'crop', value: String(val) };
+          break;
+        } else if (keyLower.includes('state')) {
+          detectedEntity = { type: 'state', value: String(val) };
+          break;
+        } else if (keyLower.includes('division')) {
+          detectedEntity = { type: 'division', value: String(val) };
+          break;
+        }
+      }
+    }
+  }
+
+  sessionContext.memory = {
+    lastIntent: queryPlan.navigation?.intent || sessionContext.memory.lastIntent || 'show_sales_report',
+    lastMetric: queryPlan.metric?.column || sessionContext.memory.lastMetric || 'sales_amount_inr',
+    lastResolvedQuestion: resolvedQuestion,
+    lastFilters: updatedContextFilters,
+    lastEntity: detectedEntity || sessionContext.memory.lastEntity
+  };
+
   const newContext = {
     filters: updatedContextFilters,
     chartPreferences: updatedChartPreferences,
@@ -647,6 +867,7 @@ export async function processQuestion({ question, sessionId, filters }) {
     lastTab: planNav.navigateTo || sessionContext.lastTab || "summary",
     lastSection: targetSection,
     lastQuestion: question,
+    memory: sessionContext.memory,
     updatedAt: new Date().toISOString()
   };
 

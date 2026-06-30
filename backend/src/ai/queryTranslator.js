@@ -183,6 +183,11 @@ CRITICAL GROUNDING RULES:
 - The column "classification" exists ONLY on the "billing_types" table, never on "sales_data" or "ai_sales_records" directly. Any query filtering or selecting by classification MUST include JOIN billing_types bt ON sd.billing_type = bt.billing_type and reference bt.classification, never sd.classification.
 - When a question asks for two related but distinct metrics (e.g. "total sales AND top crop within it", "overall revenue AND which state drove it"), generate separate aggregations for each metric (using CTEs or subqueries) rather than computing only one and reusing its value for both. Never present a single GROUP BY ... LIMIT 1 result as if it answers a broader "total" question unless the question is asking exclusively about the top-ranked item.
 
+MEMORY RULES:
+1. Treat each question independently unless the user explicitly references prior context using pronouns (it, its, that, those) or follow-up phrases.
+2. Never carry over crop, state, division, or financial year filters from previous questions unless explicitly referenced.
+3. The history is passed ONLY for resolving pronouns and follow-up context. If history is empty, translate the question strictly as a new independent request.
+
 FEW-SHOT EXAMPLES:
 Question: Which crop generated highest revenue?
 SQL: SELECT m.crop AS crop, SUM(sd.sales_amount_inr) AS revenue FROM sales_data sd JOIN billing_types bt ON sd.billing_type = bt.billing_type JOIN materials m ON sd.material_code = m.material_code WHERE bt.classification = 'GROSS_SALE' GROUP BY m.crop ORDER BY revenue DESC LIMIT 1;
