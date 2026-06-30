@@ -36,8 +36,18 @@ export function buildFilterClause(params, startParamIndex = 1) {
   // 4. Distribution Channel
   if (params.dist_channel || params.distributionChannel || params.channel) {
     const channelVal = params.dist_channel || params.distributionChannel || params.channel;
-    clauses.push(`c.dist_channel = $${paramIdx++}`);
-    sqlParams.push(channelVal);
+    if (channelVal === 'Dealer & Distributor') {
+      clauses.push(`c.dist_channel = 'DD'`);
+    } else if (channelVal === 'Institutional Sales') {
+      clauses.push(`c.dist_channel IN ('ST', 'IS')`);
+    } else if (channelVal === 'Government Sales') {
+      clauses.push(`c.dist_channel = 'GS'`);
+    } else if (channelVal === 'Export') {
+      clauses.push(`c.dist_channel IN ('ES', 'EO')`);
+    } else {
+      clauses.push(`c.dist_channel = $${paramIdx++}`);
+      sqlParams.push(channelVal);
+    }
   }
 
   // 5. State

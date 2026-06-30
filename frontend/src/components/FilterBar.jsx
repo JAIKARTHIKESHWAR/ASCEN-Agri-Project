@@ -87,9 +87,10 @@ function FilterBar({
             onChange={(e) => handleChange('distributionChannel', e.target.value)}
           >
             <option value="">All Channels</option>
-            <option value="Dealer">Dealer</option>
-            <option value="Distributor">Distributor</option>
-            <option value="Direct">Direct</option>
+            <option value="Dealer & Distributor">Dealer & Distributor</option>
+            <option value="Institutional Sales">Institutional Sales</option>
+            <option value="Government Sales">Government Sales</option>
+            <option value="Export">Export</option>
           </select>
         </div>
 

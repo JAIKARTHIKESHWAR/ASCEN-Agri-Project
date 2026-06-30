@@ -48,7 +48,7 @@ export async function getSummary(req, res) {
     const { whereClause, sqlParams } = buildFilterClause(req.query);
 
     // 1. KPI Cards
-    const { kpis, monthlyTrend, divisionSplit, topStates, topCrops, topDealers, salesByStateIntensity } = await analytics.getSummaryData(whereClause, sqlParams);
+    const { kpis, monthlyTrend, divisionSplit, topStates, topCrops, topDealers, distributionChannelMix } = await analytics.getSummaryData(whereClause, sqlParams);
 
     // Validate the calculated KPIs before sending to frontend
     validateAnalyticsKPIs({
@@ -72,7 +72,7 @@ export async function getSummary(req, res) {
       topStates,
       topCrops,
       topDealers,
-      salesByStateIntensity,
+      distributionChannelMix,
       datasetHealth: {
         totalRows: parseInt(kpis.total_rows || 0, 10),
         lastUpdated: kpis.lastUpdatedFormatted,

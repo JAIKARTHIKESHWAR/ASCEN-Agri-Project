@@ -767,6 +767,7 @@ function App() {
           <ExecutiveSummary
             filteredData={filteredData}
             kpis={kpis}
+            filters={filters}
             setActiveTab={setActiveTab}
             chartPreferences={chartPreferences}
             setChartPreferences={setChartPreferences}

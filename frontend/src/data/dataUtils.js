@@ -1,11 +1,34 @@
 /**
+ * Map raw distribution channel codes/names to human-readable categories.
+ */
+export function getMappedChannel(channelCode) {
+  const code = (channelCode || '').toUpperCase().trim();
+  if (code === 'DD' || code === 'DEALER' || code === 'DISTRIBUTOR' || code === 'DIRECT') {
+    return 'Dealer & Distributor';
+  }
+  if (code === 'ST' || code === 'IS' || code === 'INSTITUTIONAL') {
+    return 'Institutional Sales';
+  }
+  if (code === 'GS' || code === 'GOVERNMENT') {
+    return 'Government Sales';
+  }
+  if (code === 'ES' || code === 'EO' || code === 'EXPORT') {
+    return 'Export';
+  }
+  return channelCode || 'Dealer & Distributor';
+}
+
+/**
  * Filter data dynamically based on active filter selectors
  */
 export function getFilteredData(data, filters) {
   return data.filter(item => {
     if (filters.fy && item.fy !== filters.fy) return false;
     if (filters.division && item.division !== filters.division) return false;
-    if (filters.distributionChannel && item.distributionChannel !== filters.distributionChannel) return false;
+    if (filters.distributionChannel) {
+      const mappedItemChannel = getMappedChannel(item.distributionChannel);
+      if (mappedItemChannel !== filters.distributionChannel) return false;
+    }
     if (filters.state && item.state !== filters.state) return false;
     if (filters.crop && item.crop !== filters.crop) return false;
     if (filters.variety && item.variety !== filters.variety) return false;

@@ -112,25 +112,44 @@ export async function getSummaryData(whereClause, sqlParams) {
   `, sqlParams);
   const topDealers = topDealersRes.map(d => ({ label: d.label, customerId: d.customerid, value: parseFloat(d.value || 0) }));
 
-  // Sales by State Intensity (including returns)
-  const intensitySql = `
+  // Distribution Channel Mix calculations
+  const channelMixSql = `
     SELECT
-      t.state AS label,
-      SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) AS value,
-      SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END) AS returns
+      c.dist_channel AS label,
+      SUM(sd.sales_amount_inr) AS value
     FROM sales_data sd
     JOIN billing_types bt ON sd.billing_type = bt.billing_type
-    JOIN territories t ON sd.territory_id = t.territory_id
-    ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification IN ('GROSS_SALE', 'RETURN')
+    JOIN customers c ON sd.customer_id = c.customer_id
+    ${whereClause} ${whereClause ? 'AND' : 'WHERE'} bt.classification = 'GROSS_SALE'
     GROUP BY label
-    ORDER BY value DESC
   `;
-  const salesByStateIntensityRes = await originalDbAll(intensitySql, sqlParams);
-  const salesByStateIntensity = salesByStateIntensityRes.map(s => ({
-    label: s.label,
-    value: parseFloat(s.value || 0),
-    returns: parseFloat(s.returns || 0)
-  }));
+  const channelMixRes = await originalDbAll(channelMixSql, sqlParams);
+  
+  const channelSalesAgg = {
+    'Dealer & Distributor': 0,
+    'Institutional Sales': 0,
+    'Government Sales': 0,
+    'Export': 0
+  };
+  channelMixRes.forEach(r => {
+    const rawChan = r.label || '';
+    let mapped = 'Dealer & Distributor';
+    if (rawChan === 'DD') {
+      mapped = 'Dealer & Distributor';
+    } else if (rawChan === 'ST' || rawChan === 'IS') {
+      mapped = 'Institutional Sales';
+    } else if (rawChan === 'GS') {
+      mapped = 'Government Sales';
+    } else if (rawChan === 'ES' || rawChan === 'EO') {
+      mapped = 'Export';
+    }
+    channelSalesAgg[mapped] += parseFloat(r.value || 0);
+  });
+
+  const distributionChannelMix = Object.keys(channelSalesAgg).map(name => ({
+    label: name,
+    value: channelSalesAgg[name]
+  })).sort((a, b) => b.value - a.value);
 
   // Dataset health metadata (FY codes)
   const fyRows = await originalDbAll('SELECT DISTINCT fy_code FROM sales_data_raw WHERE batch_id = $1', [sqlParams[0] || null]);
@@ -155,7 +174,7 @@ export async function getSummaryData(whereClause, sqlParams) {
     topStates,
     topCrops,
     topDealers,
-    salesByStateIntensity
+    distributionChannelMix
   };
 }
 

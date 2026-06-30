@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DonutChart, LineChart, BarChart, AreaChart, HeatmapChart, WaterfallChart, TreemapChart, SunburstChart, formatCurrency } from './CustomCharts';
+import { getMappedChannel } from '../data/dataUtils';
 
 const trendModes = [
   { key: 'line', label: 'Line' },
@@ -19,18 +20,21 @@ const divisionModes = [
 function ExecutiveSummary({
   filteredData,
   kpis,
+  filters,
   setActiveTab,
   chartPreferences = {},
   setChartPreferences = () => { },
   analyticsContext,
   comparisonMetrics
 }) {
-  const [chartType, setChartType] = useState('line'); // 'line' or 'bar'
-  const [divisionView, setDivisionView] = useState('donut');
-
-  const activeSalesChart = chartPreferences['sales-overview'] || chartType;
-  const activeDivisionView = chartPreferences['division-contribution'] || divisionView;
+  const [localSelectedCrop, setLocalSelectedCrop] = useState('');
+  const activeSalesChart = 'line';
+  const activeDivisionView = 'donut';
   const [returnsChartType, setReturnsChartType] = useState('bar');
+
+  useEffect(() => {
+    setLocalSelectedCrop('');
+  }, [filteredData]);
   const [statesLimit, setStatesLimit] = useState(5);
   const [cropsLimit, setCropsLimit] = useState(5);
   const [dealersLimit, setDealersLimit] = useState(5);
@@ -38,9 +42,9 @@ function ExecutiveSummary({
     states: false,
     crops: false,
     dealers: false,
-    salesByState: false,
+    channelMix: false,
     returns: false,
-    recommendations: false
+    varietyBreakdown: false
   });
 
   const renderGrowthBadge = (growthValue) => {
@@ -268,35 +272,53 @@ function ExecutiveSummary({
     ? filteredData.reduce((latest, item) => (item.date > latest ? item.date : latest), filteredData[0].date)
     : null;
 
-  const recommendationCards = [];
-  if (topCrop) {
-    recommendationCards.push({
-      tone: 'High impact',
-      title: `Increase inventory for ${topCrop.label} in ${topState?.label || 'top states'}`,
-      detail: 'Highest gross contributor is getting the strongest demand pull.'
-    });
-  }
-  if (topReturnStates[0] && topReturnStates[0].rate >= 10) {
-    recommendationCards.push({
-      tone: 'Medium impact',
-      title: `Investigate high returns in ${topReturnStates[0].label}`,
-      detail: `Return rate is ${topReturnStates[0].rate.toFixed(1)}% against gross sales.`
-    });
-  }
-  if (topDealer) {
-    recommendationCards.push({
-      tone: 'High impact',
-      title: `Protect service levels for ${topDealer.label}`,
-      detail: 'Largest dealer is driving a meaningful share of revenue.'
-    });
-  }
-  if (recommendationCards.length < 3) {
-    recommendationCards.push({
-      tone: 'Low impact',
-      title: 'Expand mix in underweighted states',
-      detail: 'Use the sales-by-state panel to identify weaker regions.'
-    });
-  }
+  // 1. Distribution Channel Mix Calculations
+  const channelSalesMap = {
+    'Dealer & Distributor': 0,
+    'Institutional Sales': 0,
+    'Government Sales': 0,
+    'Export': 0
+  };
+
+  filteredData.forEach(item => {
+    const bt = (item.billingType || '').toUpperCase();
+    if (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2') {
+      const mapped = getMappedChannel(item.distributionChannel);
+      if (channelSalesMap[mapped] !== undefined) {
+        channelSalesMap[mapped] += item.salesAmountINR || 0;
+      } else {
+        channelSalesMap['Dealer & Distributor'] += item.salesAmountINR || 0;
+      }
+    }
+  });
+
+  const totalChannelSales = Object.values(channelSalesMap).reduce((sum, val) => sum + val, 0);
+
+  const channelMix = Object.keys(channelSalesMap).map(name => ({
+    name,
+    value: channelSalesMap[name],
+    percentage: totalChannelSales > 0 ? (channelSalesMap[name] / totalChannelSales) * 100 : 0
+  })).sort((a, b) => b.value - a.value);
+
+  // 2. Variety under Crop Breakdown Calculations
+  const selectedCrop = (filters && filters.crop) || localSelectedCrop || topCrop?.label || '';
+  
+  const cropInvoices = filteredData.filter(item => {
+    const bt = (item.billingType || '').toUpperCase();
+    return item.crop === selectedCrop && (bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2');
+  });
+
+  const varietyMap = {};
+  cropInvoices.forEach(item => {
+    varietyMap[item.variety] = (varietyMap[item.variety] || 0) + item.salesAmountINR;
+  });
+
+  const totalCropSales = Object.values(varietyMap).reduce((sum, val) => sum + val, 0);
+
+  const varieties = Object.keys(varietyMap).map(v => ({
+    name: v,
+    value: varietyMap[v]
+  })).sort((a, b) => b.value - a.value);
 
   const trendModes = [
     { key: 'line', label: 'Line' },
@@ -470,44 +492,10 @@ function ExecutiveSummary({
                 )}
               </p>
             </div>
-
-            {/* Chart Type Toggle Button Group */}
-            <div style={{
-              display: 'flex',
-              gap: '6px',
-              backgroundColor: 'var(--bg-tertiary)',
-              padding: '4px',
-              borderRadius: '999px',
-              border: '1px solid var(--border-color)'
-            }}>
-              {trendModes.map((mode) => (
-                <button
-                  key={mode.key}
-                  style={{
-                    padding: '4px 12px',
-                    fontSize: '0.75rem',
-                    backgroundColor: chartType === mode.key ? 'var(--text-primary)' : 'transparent',
-                    color: chartType === mode.key ? 'var(--bg-primary)' : 'var(--text-secondary)',
-                    border: 'none',
-                    borderRadius: '999px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all var(--transition-fast)'
-                  }}
-                  onClick={() => setChartType(mode.key)}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className="chart-container">
-            {activeSalesChart === 'line' && <LineChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
-            {activeSalesChart === 'bar' && <BarChart data={chartData} yKey={mainValKey} comparisonKey={compKey} barColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'area' && <AreaChart data={chartData} yKey={mainValKey} fillColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'heatmap' && <HeatmapChart data={chartData} />}
-            {activeSalesChart === 'waterfall' && <WaterfallChart data={chartData} />}
+            <LineChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />
           </div>
         </div>
 
@@ -518,43 +506,9 @@ function ExecutiveSummary({
               <h3 className="card-title">Division Contribution</h3>
               <p className="card-subtitle">Revenue split by division</p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{
-                display: 'flex',
-                gap: '6px',
-                backgroundColor: 'var(--bg-tertiary)',
-                padding: '4px',
-                borderRadius: '999px',
-                border: '1px solid var(--border-color)'
-              }}>
-                {divisionModes.map((mode) => (
-                  <button
-                    key={mode.key}
-                    style={{
-                      padding: '4px 12px',
-                      fontSize: '0.75rem',
-                      backgroundColor: divisionView === mode.key ? 'var(--text-primary)' : 'transparent',
-                      color: divisionView === mode.key ? 'var(--bg-primary)' : 'var(--text-secondary)',
-                      border: 'none',
-                      borderRadius: '999px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      transition: 'all var(--transition-fast)'
-                    }}
-                    onClick={() => setDivisionView(mode.key)}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
           <div style={{ height: '240px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-            {activeDivisionView === 'donut' && <DonutChart data={divisionData} height={240} />}
-            {activeDivisionView === 'pie' && <DonutChart data={divisionData} height={240} />}
-            {activeDivisionView === 'treemap' && <TreemapChart data={divisionData} height={240} />}
-            {activeDivisionView === 'sunburst' && <SunburstChart data={divisionData} height={240} />}
-            {activeDivisionView === 'bar' && <BarChart data={divisionData.map(d => ({ label: d.label, value: d.value }))} height={240} barColor="var(--color-sales-gross)" />}
+            <DonutChart data={divisionData} height={240} />
           </div>
         </div>
       </section>
@@ -605,7 +559,17 @@ function ExecutiveSummary({
               const compVal = item.comparisonValue;
               const percentage = totalGrossSales > 0 ? ((val / totalGrossSales) * 100).toFixed(1) : '0.0';
               return (
-                <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div
+                  key={item.label}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                    padding: '6px 8px',
+                    borderRadius: '8px',
+                    border: '1px solid transparent',
+                  }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.78rem', fontWeight: '500', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: '8px' }}>
                       {index + 1}. {item.label}
@@ -693,7 +657,17 @@ function ExecutiveSummary({
               const compVal = item.comparisonValue;
               const percentage = totalGrossSales > 0 ? ((val / totalGrossSales) * 100).toFixed(1) : '0.0';
               return (
-                <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div
+                  key={item.label}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                    padding: '6px 8px',
+                    borderRadius: '8px',
+                    border: '1px solid transparent',
+                  }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.78rem', fontWeight: '500', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: '8px' }}>
                       {index + 1}. {item.label}
@@ -781,7 +755,17 @@ function ExecutiveSummary({
               const compVal = item.comparisonValue;
               const percentage = totalGrossSales > 0 ? ((val / totalGrossSales) * 100).toFixed(1) : '0.0';
               return (
-                <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div
+                  key={item.label}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                    padding: '6px 8px',
+                    borderRadius: '8px',
+                    border: '1px solid transparent',
+                  }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.78rem', fontWeight: '500', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: '8px' }}>
                       {index + 1}. {item.label}
@@ -833,41 +817,50 @@ function ExecutiveSummary({
       </section>
 
       <section className="dashboard-grid" style={{ gridTemplateColumns: '1.2fr 1fr 1fr', marginTop: '18px' }}>
-        <div id="sales-by-state" className="card" style={{ padding: '16px 18px', gap: '12px' }}>
+        <div id="distribution-channel-mix" className="card" style={{ padding: '16px 18px', gap: '12px' }}>
           <div className="card-header">
             <div>
-              <h3 className="card-title" style={{ fontSize: '0.8rem', fontWeight: '800' }}>Sales by State</h3>
-              <p className="card-subtitle">State-wise revenue intensity</p>
+              <h3 className="card-title" style={{ fontSize: '0.8rem', fontWeight: '800' }}>Distribution Channel Mix</h3>
+              <p className="card-subtitle">Revenue split across channels</p>
             </div>
-            {renderExpandButton('salesByState')}
+            {renderExpandButton('channelMix')}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
-            {(expandedPanels.salesByState ? stateHeatmapData : stateHeatmapData.slice(0, 4)).map(item => {
-              const maxValue = stateHeatmapData[0]?.primaryValue !== undefined ? stateHeatmapData[0].primaryValue : (stateHeatmapData[0]?.value || 1);
-              const val = item.primaryValue !== undefined ? item.primaryValue : item.value;
-              const compVal = item.comparisonValue;
-              const intensity = val / maxValue;
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px' }}>
+            {(expandedPanels.channelMix ? channelMix : channelMix.slice(0, 4)).map((item, index) => {
+              const maxVal = Math.max(...channelMix.map(c => c.value)) || 1;
+              const intensity = item.value / maxVal;
+              const gradients = [
+                'linear-gradient(180deg, rgba(37,99,235,0.08), rgba(37,99,235,0.02))',
+                'linear-gradient(180deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))',
+                'linear-gradient(180deg, rgba(217,119,6,0.08), rgba(217,119,6,0.02))',
+                'linear-gradient(180deg, rgba(225,29,72,0.08), rgba(225,29,72,0.02))'
+              ];
+              const progressColors = [
+                'var(--color-sales-gross)',
+                'var(--color-sales-net)',
+                'var(--color-ipt)',
+                'var(--color-cancelled)'
+              ];
+              const gradient = gradients[index % gradients.length];
+              const progressColor = progressColors[index % progressColors.length];
+
               return (
-                <div key={item.label} style={{ borderRadius: '12px', padding: '10px', background: `linear-gradient(180deg, rgba(37,99,235,${0.08 + intensity * 0.18}), rgba(16,185,129,${0.04 + intensity * 0.08}))`, border: '1px solid var(--border-color)' }}>
-                  <div style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-primary)' }}>{item.label}</div>
-                  <div style={{ marginTop: '6px', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                    {formatCurrency(val)}
-                    {compVal !== undefined && (
-                      <span style={{ fontSize: '0.66rem', fontWeight: '400', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                        vs {formatCurrency(compVal)}
-                      </span>
-                    )}
+                <div key={item.name} style={{ borderRadius: '12px', padding: '10px', background: gradient, border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '6px' }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: '700', color: 'var(--text-primary)', minHeight: '32px' }}>{item.name}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 'auto' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-primary)' }}>{formatCurrency(item.value)}</span>
+                    <span style={{ fontSize: '0.7rem', fontWeight: '700', color: progressColor }}>{item.percentage.toFixed(0)}%</span>
                   </div>
-                  <div style={{ marginTop: '10px', height: '5px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '999px', overflow: 'hidden' }}>
-                    <div style={{ width: `${intensity * 100}%`, height: '100%', backgroundColor: 'var(--color-sales-gross)' }} />
+                  <div style={{ height: '3px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '999px', overflow: 'hidden', marginTop: '2px' }}>
+                    <div style={{ width: `${intensity * 100}%`, height: '100%', backgroundColor: progressColor }} />
                   </div>
                 </div>
               );
             })}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-            <span>{expandedPanels.salesByState ? 'Full state intensity view' : 'Top 4 states shown'}</span>
-            <span>Low - High</span>
+            <span>{expandedPanels.channelMix ? 'Showing all channels' : 'Top channels shown'}</span>
+            <span>Total: {formatCurrency(totalChannelSales)}</span>
           </div>
         </div>
 
@@ -902,34 +895,75 @@ function ExecutiveSummary({
           </div>
         </div>
 
-        <div id="ai-recommendations" className="card" style={{ padding: '16px 18px', gap: '12px' }}>
-          <div className="card-header">
+        <div id="variety-breakdown" className="card" style={{ padding: '16px 18px', gap: '12px' }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h3 className="card-title" style={{ fontSize: '0.8rem', fontWeight: '800' }}>AI Recommendations</h3>
-              <p className="card-subtitle">Top actions for better performance</p>
+              <h3 className="card-title" style={{ fontSize: '0.8rem', fontWeight: '800' }}>Variety Breakdown</h3>
+              <p className="card-subtitle">Varieties under {selectedCrop || 'Top Crop'}</p>
             </div>
-            {renderExpandButton('recommendations')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <select
+                value={selectedCrop}
+                onChange={(e) => setLocalSelectedCrop(e.target.value)}
+                style={{
+                  appearance: 'none',
+                  backgroundColor: 'var(--bg-primary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  padding: '3px 20px 3px 8px',
+                  fontSize: '0.7rem',
+                  fontWeight: '600',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2357534e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 6px center',
+                  backgroundSize: '9px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {topCropsBySales.map(c => (
+                  <option key={c.label} value={c.label}>{c.label}</option>
+                ))}
+              </select>
+              {renderExpandButton('varietyBreakdown')}
+            </div>
           </div>
-          <div style={{ display: 'grid', gap: '10px' }}>
-            {(expandedPanels.recommendations ? recommendationCards : recommendationCards.slice(0, 1)).map((item, index) => (
-              <div key={`${item.title}-${index}`} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '10px', borderRadius: '12px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
-                <div style={{ width: 10, height: 10, borderRadius: '999px', backgroundColor: index === 0 ? 'var(--color-sales-gross)' : index === 1 ? 'var(--color-cancelled)' : 'var(--color-sales-net)', marginTop: 5, flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-primary)' }}>{item.title}</div>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--color-sales-gross)', whiteSpace: 'nowrap' }}>{item.tone}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: expandedPanels.varietyBreakdown ? '350px' : '220px', flex: 1 }}>
+            {varieties.length > 0 ? (
+              (expandedPanels.varietyBreakdown ? varieties : varieties.slice(0, 4)).map((item, index) => {
+                const maxVal = varieties[0]?.value || 1;
+                const percentage = totalCropSales > 0 ? ((item.value / totalCropSales) * 100).toFixed(1) : '0.0';
+                return (
+                  <div key={item.name} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: '500', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: '8px' }}>
+                        {index + 1}. {item.name}
+                      </span>
+                      <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-primary)', flexShrink: 0 }}>
+                        {formatCurrency(item.value)}
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: '4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '999px', overflow: 'hidden' }}>
+                      <div style={{ width: `${(item.value / maxVal) * 100}%`, height: '100%', backgroundColor: 'var(--color-sales-net)', borderRadius: '999px' }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      <span style={{ marginLeft: 'auto' }}>{percentage}%</span>
+                    </div>
                   </div>
-                  <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{item.detail}</div>
-                </div>
-              </div>
-            ))}
+                );
+              })
+            ) : (
+              <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0', fontSize: '0.8rem' }}>No variety data available</div>
+            )}
           </div>
-          {!expandedPanels.recommendations && recommendationCards.length > 1 && (
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>+ {recommendationCards.length - 1} more recommendations hidden</div>
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)', paddingTop: '6px' }}>
+            <span>{expandedPanels.varietyBreakdown ? 'Full breakdown' : 'Top 4 varieties shown'}</span>
+            {selectedCrop && <span style={{ fontWeight: '600' }}>Crop: {selectedCrop}</span>}
+          </div>
         </div>
       </section>
-
     </div>
   );
 }
