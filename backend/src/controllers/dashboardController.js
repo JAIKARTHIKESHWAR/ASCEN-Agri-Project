@@ -18,7 +18,8 @@ export async function getTargetDatasetId(queryDatasetId) {
     const parsed = parseInt(queryDatasetId, 10);
     if (!isNaN(parsed)) return parsed;
   }
-  // Default fallback: get the latest uploaded batch's fy_code
+
+  console.warn('[getTargetDatasetId] No datasetId provided by caller, falling back to latest uploaded batch. This will silently scope results to the newest FY only.');
   const latestBatch = await dbGet('SELECT fy_code FROM upload_batches ORDER BY uploaded_at DESC LIMIT 1');
   if (latestBatch && latestBatch.fy_code) return latestBatch.fy_code;
   return 'all';
@@ -97,11 +98,11 @@ export async function getSalesPerformance(req, res) {
     const { whereClause, sqlParams } = buildFilterClause(filters);
 
     // 1. KPIs
-    const { kpis } = await analytics.getSalesKPIs(whereClause, sqlParams);
+    const kpis = await analytics.getSalesKPIs(whereClause, sqlParams);
     const grossSales = kpis.grossSales;
     const returnsValue = kpis.returnsValue;
     const cancelledValue = kpis.cancelledValue;
-    const netExternalSales = Math.max(0, grossSales - returnsValue - cancelledValue);
+    const netExternalSales = grossSales - returnsValue - cancelledValue;
 
     validateAnalyticsKPIs({
       grossSales,
@@ -170,6 +171,7 @@ export async function getSalesPerformance(req, res) {
       kpis: {
         grossSales,
         returnsValue,
+        cancelledValue,
         netExternalSales,
         returnRate: grossSales > 0 ? parseFloat(((returnsValue / grossSales) * 100).toFixed(2)) : 0
       },
@@ -452,7 +454,7 @@ export async function getReturns(req, res) {
         grossSales,
         returnsValue,
         cancelledValue: 0,
-        netExternalSales: Math.max(0, grossSales - returnsValue)
+        netExternalSales: grossSales - returnsValue
       });
 
     // 2. Returns trend — ABS in SQL is the source of truth

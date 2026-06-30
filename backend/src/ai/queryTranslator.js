@@ -2,6 +2,7 @@ import Groq from 'groq-sdk';
 import dotenv from 'dotenv';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { dbAll } from '../database.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,6 +17,112 @@ if (apiKey) {
   console.warn('Warning: GROQ_API_KEY is not defined in environment variables or backend/ai/.env');
 }
 
+/**
+ * Dynamically queries the PostgreSQL schema for grounding.
+ */
+async function getSchemaContext() {
+  try {
+    const schema = await dbAll(`
+      SELECT table_name,
+             column_name,
+             data_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name IN ('sales_data_raw', 'financial_years', 'billing_types', 'materials', 'employees', 'customers', 'territories', 'sales_data', 'ai_sales_records')
+      ORDER BY table_name, ordinal_position
+    `);
+
+    let context = '';
+    let currentTable = '';
+
+    for (const row of schema) {
+      if (currentTable !== row.table_name) {
+        currentTable = row.table_name;
+        context += `\nTable/View: ${currentTable}\n`;
+      }
+      context += `- ${row.column_name} (${row.data_type})\n`;
+    }
+
+    return context;
+  } catch (err) {
+    console.error("Failed to load schema context dynamically:", err);
+    // Static fallback schema description to ensure query translator always works
+    return `
+Table/View: sales_data
+- id (bigint)
+- invoice_id (text)
+- invoice_date (date)
+- billing_type (text)
+- customer_id (text)
+- material_code (text)
+- territory_id (integer)
+- qty (integer)
+- sales_unit (text)
+- sales_amount_inr (numeric)
+- cogm (numeric)
+- season_code (text)
+- fy_code (text)
+- batch_id (integer)
+
+Table/View: ai_sales_records
+- id (bigint)
+- batch_id (integer)
+- invoice_id (text)
+- invoice_date (date)
+- billing_type (text)
+- customer_id (text)
+- material_code (text)
+- territory_id (integer)
+- qty (integer)
+- sales_unit (text)
+- sales_amount_inr (numeric)
+- cogm (numeric)
+- season_code (text)
+- fy_code (text)
+- billing_type_desc (text)
+- division (text)
+- distribution_channel (text)
+- state (text)
+- plant (text)
+- storage_location (text)
+- sales_order_no (text)
+- customer_reference (text)
+- indent_no (text)
+- ipt_sr_request_no (text)
+- ipt_sr_request_date (date)
+- accounting_doc_no (text)
+- fiscal_year (integer)
+- customer_no (text)
+- customer_name (text)
+- line_item_no (text)
+- crop_name (text)
+- variety_name (text)
+- own_trade (text)
+- material_name (text)
+- batch_no (text)
+- expiry_date (date)
+- currency (text)
+- sales_price (numeric)
+- sales_amount (numeric)
+- exchange_rate (numeric)
+- base_currency_inr (text)
+- sales_price_inr (numeric)
+- territory_name (text)
+- ti_id (text)
+- ti_name (text)
+- am_id (text)
+- am_name (text)
+- rbm_id (text)
+- rbm_name (text)
+- dbm_id (text)
+- dbm_name (text)
+- created_by (text)
+- classification (text)
+- fy_name (text)
+    `;
+  }
+}
+
 export async function translateQuestionToPlan(question, activeFilters = {}, history = []) {
   if (!groqClient) {
     throw new Error('Groq AI Client is not configured. Please supply a valid GROQ_API_KEY.');
@@ -23,41 +130,82 @@ export async function translateQuestionToPlan(question, activeFilters = {}, hist
 
   let filterContext = '';
   if (activeFilters && Object.keys(activeFilters).length > 0) {
-    filterContext = `\nActive Screen Filters Context (You MUST apply these as filters in the WHERE clause where appropriate. For example, if division is 'VG', filter materials by division = 'VG'): ${JSON.stringify(activeFilters)}\n`;
+    filterContext = `\nActive Dashboard Filters (MANDATORY — you MUST apply ALL of these filters in the SQL WHERE clause. If division is provided, JOIN materials m ON sd.material_code = m.material_code and add m.division = '<value>' to WHERE. If state is provided, JOIN territories t ON sd.territory_id = t.territory_id and add t.state ILIKE '<value>' to WHERE. If crop is provided, JOIN materials m and add m.crop ILIKE '<value>'. These filters represent the user's current dashboard view and the query results MUST match what the dashboard shows): ${JSON.stringify(activeFilters)}\n`;
   }
 
-  const systemPrompt = `You are a translation layer converting natural language business questions into structured PostgreSQL queries on a normalized sales database.
+  const dynamicSchema = await getSchemaContext();
 
-Database Schema and Tables:
-1. financial_years (fy_code TEXT PRIMARY KEY, fy_name TEXT NOT NULL)
-   - Values: 'FY2425' (Financial Year 2024-25), 'FY2627' (Financial Year 2026-27)
-2. billing_types (billing_type TEXT PRIMARY KEY, billing_desc TEXT NOT NULL, classification TEXT NOT NULL)
-   - Classifications: 'GROSS_SALE' (F2 standard invoices), 'RETURN' (RE returns), 'CANCELLED' (S1 cancelled invoices), 'STOCK_TRANSFER' (IPT internal transfers)
-3. materials (material_code TEXT PRIMARY KEY, material_desc TEXT NOT NULL, division TEXT NOT NULL, crop TEXT NOT NULL, variety TEXT NOT NULL, sales_unit TEXT NOT NULL, own_trade TEXT NOT NULL)
-   - division: 'VG' (Vegetables), 'FC' (Field Crops)
-   - own_trade: 'Own', 'Trade'
-4. employees (employee_id TEXT PRIMARY KEY, employee_name TEXT NOT NULL, role TEXT NOT NULL)
-   - roles: 'RBM', 'AM', 'DBM'
-5. customers (customer_id TEXT PRIMARY KEY, customer_name TEXT NOT NULL, dist_channel TEXT NOT NULL)
-   - dist_channels: 'Dealer', 'Distributor', 'Direct'
-6. territories (territory_id INTEGER PRIMARY KEY, state TEXT NOT NULL, territory TEXT NOT NULL, territory_incharge_id TEXT, am_id TEXT, rbm_id TEXT, dbm_id TEXT)
-   - Manager IDs link to employees.employee_id
-7. sales_data (invoice_id TEXT PRIMARY KEY, invoice_date DATE NOT NULL, billing_type TEXT NOT NULL, customer_id TEXT NOT NULL, material_code TEXT NOT NULL, territory_id INTEGER NOT NULL, qty INTEGER NOT NULL, sales_unit TEXT NOT NULL, sales_amount_inr NUMERIC(15, 2) NOT NULL, cogm NUMERIC(15, 2) NOT NULL, season_code TEXT NOT NULL, fy_code TEXT NOT NULL, batch_id INTEGER)
+  const systemPrompt = `You are a translation layer converting natural language business questions into structured PostgreSQL queries on a sales database.
 
-Important Business and Join Rules:
-1. Standard Gross Sales: Filter sd.billing_type in (SELECT billing_type FROM billing_types WHERE classification='GROSS_SALE').
-2. Returns Value: Filter classification='RETURN'.
-3. Cancelled Invoices: Filter classification='CANCELLED'.
-4. Stock Transfers (IPT): Filter classification='STOCK_TRANSFER' (normally EXCLUDED from gross sales/net sales unless specifically asked).
-5. Net External Sales: Calculate as SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END) - SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END) - SUM(CASE WHEN bt.classification='CANCELLED' THEN sd.sales_amount_inr ELSE 0 END).
-6. Season Code: Only relevant for Field Crops (FC).
-7. Monthly Trend: Format sd.invoice_date using to_char(sd.invoice_date, 'YYYY-MM') AS sortkey.
-8. All filters must resolve through standard SQL joins:
-   - Join billing_types: sd.billing_type = bt.billing_type
-   - Join materials: sd.material_code = m.material_code
-   - Join territories: sd.territory_id = t.territory_id
-   - Join customers: sd.customer_id = c.customer_id
-   - Join employees for territory managers.
+Database Schema:
+${dynamicSchema}
+
+Business Terms Mapping (Grounding Dictionary):
+- crop -> crop_name (in ai_sales_records) or crop (in materials)
+- product -> material_name (in ai_sales_records) or material_desc (in materials)
+- material -> material_name (in ai_sales_records) or material_desc (in materials)
+- dealer / customer / client -> customer_name (in ai_sales_records / customers) or customer_no (in ai_sales_records)
+- sales rep / territory manager -> ti_name
+- area manager -> am_name
+- regional manager -> rbm_name
+- division manager -> dbm_name
+- batch / batch number -> batch_no
+- expiry / expiration -> expiry_date
+- sales order -> sales_order_no
+- storage / storage location -> storage_location
+- invoice amount / gross sales / revenue / sales / billing amount -> sales_amount_inr
+- net external sales -> (standardGrossSales - returns - cancelled)
+- profit / margin -> (sales_amount_inr - cogm)
+
+TABLE SELECTION RULES:
+- Use "sales_data" (Analytical View) for any high-level KPI, trend, contribution, comparison, ranking, and performance queries (e.g. gross sales, net sales, revenue, top crops, state revenue, monthly trend, YoY growth).
+- Use "ai_sales_records" (AI View) for any detailed, operational, or record-level queries (e.g. batch details, plant/storage locations, expiry dates, sales orders, created by, customer reference, line items).
+
+FINANCIAL YEAR RESOLUTION RULES:
+1. If the user explicitly mentions one or more financial years (e.g. "in FY26-27", "for FY24-25", "compare FY24-25 and FY26-27"), filter the query by those specific "fy_code" values in the WHERE clause.
+2. If the user does not mention any financial year and multiple datasets are available, aggregate results across all active financial years (do NOT apply any "fy_code" filter in the SQL query).
+3. If only one financial year dataset exists in the database, automatically use that dataset.
+4. Never assume the currently selected dashboard financial year unless the user explicitly asks for "current view", "selected year", or "this dashboard".
+5. Always mention the financial years used in the response.
+
+CRITICAL SQL SAFETY RULES:
+- Only generate read-only SELECT queries. Never generate UPDATE, DELETE, INSERT, ALTER, DROP, TRUNCATE, or CREATE statements.
+- Always include LIMIT 100 for detail/transactional queries unless the user explicitly requests all records.
+- Prefer aggregation queries (using SUM, COUNT, AVG) over returning thousands of raw rows.
+
+CRITICAL GROUNDING RULES:
+- Only use columns listed in the Database Schema above. Never invent column names.
+- Always alias columns explicitly (e.g. SELECT m.crop AS crop, SUM(sd.sales_amount_inr) AS revenue). Never return unnamed expressions.
+- Whenever the user asks about revenue, sales, value, or performance (e.g. "highest revenue", "top crop", "highest sales", "best performing crop", "highest value", "maximum sales", "crop with most sales"), you MUST filter the query using classification = 'GROSS_SALE' (or billing_type IN ('F2', 'ZF2', 'ZIF2')) unless they are explicitly asking about returns or cancelled invoices.
+- The table "materials" contains "material_desc", NOT "material_name". Never use "m.material_name". Use "m.material_desc" when joining the materials table.
+- The view "ai_sales_records" contains "material_name" directly. You do not need to join the materials table when querying ai_sales_records.
+- The view "sales_data" contains "material_code", and if you need the description/name, you must join "materials" and use "m.material_desc".
+- The column "classification" exists ONLY on the "billing_types" table, never on "sales_data" or "ai_sales_records" directly. Any query filtering or selecting by classification MUST include JOIN billing_types bt ON sd.billing_type = bt.billing_type and reference bt.classification, never sd.classification.
+- When a question asks for two related but distinct metrics (e.g. "total sales AND top crop within it", "overall revenue AND which state drove it"), generate separate aggregations for each metric (using CTEs or subqueries) rather than computing only one and reusing its value for both. Never present a single GROUP BY ... LIMIT 1 result as if it answers a broader "total" question unless the question is asking exclusively about the top-ranked item.
+
+FEW-SHOT EXAMPLES:
+Question: Which crop generated highest revenue?
+SQL: SELECT m.crop AS crop, SUM(sd.sales_amount_inr) AS revenue FROM sales_data sd JOIN billing_types bt ON sd.billing_type = bt.billing_type JOIN materials m ON sd.material_code = m.material_code WHERE bt.classification = 'GROSS_SALE' GROUP BY m.crop ORDER BY revenue DESC LIMIT 1;
+
+Question: Which crop generated highest revenue? [Active Filters: {"division":"VG","datasetId":"FY2627"}]
+SQL: SELECT m.crop AS crop, SUM(sd.sales_amount_inr) AS revenue FROM sales_data sd JOIN billing_types bt ON sd.billing_type = bt.billing_type JOIN materials m ON sd.material_code = m.material_code WHERE bt.classification = 'GROSS_SALE' AND sd.fy_code = 'FY2627' AND m.division = 'VG' GROUP BY m.crop ORDER BY revenue DESC LIMIT 1;
+
+Question: What is the total gross invoice sales for FY2627, and which crop drove the highest revenue within it?
+SQL: WITH total AS (SELECT SUM(sd.sales_amount_inr) AS total_gross_sales FROM sales_data sd JOIN billing_types bt ON sd.billing_type = bt.billing_type WHERE bt.classification = 'GROSS_SALE' AND sd.fy_code = 'FY2627'), top_crop AS (SELECT m.crop AS crop, SUM(sd.sales_amount_inr) AS crop_revenue FROM sales_data sd JOIN billing_types bt ON sd.billing_type = bt.billing_type JOIN materials m ON sd.material_code = m.material_code WHERE bt.classification = 'GROSS_SALE' AND sd.fy_code = 'FY2627' GROUP BY m.crop ORDER BY crop_revenue DESC LIMIT 1) SELECT t.total_gross_sales, tc.crop, tc.crop_revenue FROM total t, top_crop tc;
+
+Question: Show all batches of Hybrid Mustard.
+SQL: SELECT batch_no, material_name, qty, plant FROM ai_sales_records WHERE material_name ILIKE '%Mustard%' LIMIT 100;
+
+Question: Show invoices created by admin in Plant 1001.
+SQL: SELECT invoice_id, invoice_date, created_by, sales_amount_inr FROM ai_sales_records WHERE created_by ILIKE '%admin%' AND plant = '1001' LIMIT 100;
+
+SELF-CHECKING:
+Before outputting, review your generated SQL against these checks:
+1. Are all columns present in the schema?
+2. Are all joins correct?
+3. Are all non-aggregated SELECT columns included in the GROUP BY clause?
+4. Are all column names fully qualified with their table/view aliases (e.g. sd.invoice_id)?
+5. Is the SQL executable in PostgreSQL?
 
 Output a strict JSON object with this exact schema:
 {
@@ -132,12 +280,12 @@ Rules:
   }
   Do NOT hardcode a division filter (like "VG" or "FC") unless the user explicitly mentioned "Vegetables" or "Field Crops" in their question. Let the query results determine the filters dynamically.
 - If the question is not about Acsen Agriscience sales data, crops, states, variety performance, or return rates (e.g. asking about general knowledge, programming, weather, generic chats, or agriculture statistics outside our database), you MUST set "out_of_scope" to true and return the empty JSON template above.
-- Every generated SQL query MUST query FROM sales_data (aliased as sd) and explicitly include all required JOINs (billing_types as bt, materials as m, territories as t, customers as c) if columns or classifications from those tables are referenced anywhere in the SELECT, WHERE, or GROUP BY clauses.
+- Every generated SQL query MUST query FROM sales_data or ai_sales_records (aliased as sd) and explicitly include all required JOINs if columns or classifications from other tables are referenced anywhere in the SELECT, WHERE, or GROUP BY clauses.
 - Formulate standard SQL that is fully executable in PostgreSQL. Use table aliases like 'sd', 'bt', 'm', 't', 'c' to prevent column name ambiguities.
 - Ensure column names returned in the SELECT statement match the group-by parameters exactly (e.g. SELECT t.state AS state ... GROUP BY t.state maps to "groupby": ["state"]).
 - CRITICAL: Whenever a non-aggregated column appears in the SELECT clause (for example, EXTRACT(YEAR FROM sd.invoice_date)), you MUST include that exact expression in the GROUP BY clause.
 - Always use exact join key conditions: sd.billing_type = bt.billing_type, sd.material_code = m.material_code, sd.territory_id = t.territory_id, sd.customer_id = c.customer_id. Never join on c.customer_name.
-- For names (crops, states, employees, channels) use native Postgres ILIKE matching, e.g. m.crop ILIKE 'tomato' or t.state ILIKE 'tamil nadu' or c.dist_channel ILIKE 'dealer'.
+- For names (crops, states, employees, channels) use native Postgres ILIKE matching, e.g. sd.crop_name ILIKE 'tomato' or sd.state ILIKE 'tamil nadu' or sd.customer_name ILIKE '%dealer%'.
 - In the navigation object:
   1. Map navigateTo based on user's query topic (e.g., summary for overall stats, returns for return rates, product for crop-specific stats).
   2. Map section to the specific chart/card code corresponding to the visual card (e.g. sales-overview, top-states, crops-revenue, returns-by-state, crop-performance).
@@ -155,9 +303,7 @@ Rules:
       - Q4 FY = Jan, Feb, Mar   → EXTRACT(MONTH ...) IN (1, 2, 3)
   6. If the user requests a specific time period (e.g. 'Q2 sales', 'April revenue', 'H1 performance'), apply it in the SQL WHERE clause using EXTRACT(YEAR ...) and the appropriate month IN (...) clause. Do NOT use EXTRACT(QUARTER ...) as PostgreSQL uses calendar quarters.
   7. If the user explicitly compares two periods (e.g. 'compare Q2 this year vs Q2 last year', 'YoY growth', 'FY2627 vs FY2425'), emit a comparisonContext object with FY code strings (NOT raw calendar year integers).
-
-
-`;
+  `;
 
   try {
     const chatMessages = [
@@ -187,5 +333,63 @@ Rules:
   } catch (error) {
     console.error('Groq query translation failed:', error);
     throw new Error(`Failed to translate business question: ${error.message}`);
+  }
+}
+
+/**
+ * Auto-repairs a failed SQL query using the database error message.
+ */
+export async function repairSQLQuery(question, failedSql, errorMessage) {
+  if (!groqClient) {
+    throw new Error('Groq AI Client is not configured.');
+  }
+
+  const dynamicSchema = await getSchemaContext();
+
+  const systemPrompt = `You are an expert PostgreSQL DBA. A generated SQL query has failed with a database error.
+Your job is to correct the SQL query so that it executes successfully on PostgreSQL.
+
+Database Schema:
+${dynamicSchema}
+
+Failed SQL:
+${failedSql}
+
+Database Error:
+${errorMessage}
+
+Original Question:
+${question}
+
+Instructions:
+1. Analyze the database error and the original question.
+2. Correct the SQL query.
+3. Ensure it uses only valid tables and columns from the Database Schema. Never invent columns.
+4. Output a strict JSON object with this exact schema:
+{
+  "sql": "SELECT ...",
+  "explanation": "Brief description of the fix"
+}
+5. CRITICAL: If the error is "column X does not exist" and X is a business-meaningful filter (such as classification, crop, state, division), do NOT simply remove the filter or column. Instead, identify the correct table that actually contains that column (see Database Schema above) and add the necessary JOIN to reference it correctly. Removing a classification filter changes the business meaning of the query and produces silently incorrect results, which is worse than failing outright.
+Do not include any conversational text or markdown formatting. Only return the raw JSON.`;
+
+  try {
+    const completion = await groqClient.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Please repair the SQL query.` }
+      ],
+      model: 'llama-3.3-70b-versatile',
+      response_format: { type: 'json_object' },
+      temperature: 0.0
+    });
+
+    const rawResponse = completion.choices[0].message.content.trim();
+    console.log('Raw SQL repair response:', rawResponse);
+    const parsed = JSON.parse(rawResponse);
+    return parsed.sql;
+  } catch (err) {
+    console.error("SQL repair failed:", err);
+    return null;
   }
 }

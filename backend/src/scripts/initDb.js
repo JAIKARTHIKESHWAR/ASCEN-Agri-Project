@@ -126,6 +126,54 @@ export async function initializeDatabase() {
     }
   }
 
+  // Additive migrations for all 48 columns if sales_data_raw exists
+  if (existingTables.has('sales_data_raw')) {
+    const newCols = [
+      ['billing_type_desc', 'TEXT'],
+      ['division', 'TEXT'],
+      ['distribution_channel', 'TEXT'],
+      ['state', 'TEXT'],
+      ['plant', 'TEXT'],
+      ['storage_location', 'TEXT'],
+      ['sales_order_no', 'TEXT'],
+      ['customer_reference', 'TEXT'],
+      ['indent_no', 'TEXT'],
+      ['ipt_sr_request_no', 'TEXT'],
+      ['ipt_sr_request_date', 'DATE'],
+      ['accounting_doc_no', 'TEXT'],
+      ['fiscal_year', 'INTEGER'],
+      ['customer_no', 'TEXT'],
+      ['customer_name', 'TEXT'],
+      ['line_item_no', 'TEXT'],
+      ['crop_name', 'TEXT'],
+      ['variety_name', 'TEXT'],
+      ['own_trade', 'TEXT'],
+      ['material_name', 'TEXT'],
+      ['batch_no', 'TEXT'],
+      ['expiry_date', 'DATE'],
+      ['currency', 'TEXT'],
+      ['sales_price', 'NUMERIC(15,2)'],
+      ['sales_amount', 'NUMERIC(15,2)'],
+      ['exchange_rate', 'NUMERIC(15,4)'],
+      ['base_currency_inr', 'TEXT'],
+      ['sales_price_inr', 'NUMERIC(15,2)'],
+      ['territory_name', 'TEXT'],
+      ['ti_id', 'TEXT'],
+      ['ti_name', 'TEXT'],
+      ['am_id', 'TEXT'],
+      ['am_name', 'TEXT'],
+      ['rbm_id', 'TEXT'],
+      ['rbm_name', 'TEXT'],
+      ['dbm_id', 'TEXT'],
+      ['dbm_name', 'TEXT'],
+      ['created_by', 'TEXT']
+    ];
+    for (const [colName, colType] of newCols) {
+      await dbRun(`ALTER TABLE sales_data_raw ADD COLUMN IF NOT EXISTS ${colName} ${colType}`);
+    }
+    console.log('Additive migrations for new sales_data_raw columns completed.');
+  }
+
   // ── Step 4: Remove UNIQUE constraint on (invoice_id, batch_id) if it exists ──
   try {
     await dbRun('ALTER TABLE sales_data_raw DROP CONSTRAINT IF EXISTS uq_invoice_batch');
@@ -138,9 +186,38 @@ export async function initializeDatabase() {
   console.log('Creating "sales_data" view...');
   await dbRun(`
     CREATE OR REPLACE VIEW sales_data AS
-    SELECT sd.*
+    SELECT 
+      sd.id,
+      sd.invoice_id,
+      sd.invoice_date,
+      sd.billing_type,
+      sd.customer_id,
+      sd.material_code,
+      sd.territory_id,
+      sd.qty,
+      sd.sales_unit,
+      sd.sales_amount_inr,
+      sd.cogm,
+      sd.season_code,
+      sd.fy_code,
+      sd.batch_id
     FROM sales_data_raw sd
     JOIN upload_batches ub ON sd.batch_id = ub.batch_id
+    WHERE ub.is_active = true
+  `);
+
+  // ── Step 5b: Create the enriched ai_sales_records VIEW for AI Copilot ─────────
+  console.log('Creating "ai_sales_records" view...');
+  await dbRun(`
+    CREATE OR REPLACE VIEW ai_sales_records AS
+    SELECT 
+      sd.*,
+      bt.classification,
+      fy.fy_name
+    FROM sales_data_raw sd
+    JOIN upload_batches ub ON sd.batch_id = ub.batch_id
+    LEFT JOIN billing_types bt ON sd.billing_type = bt.billing_type
+    LEFT JOIN financial_years fy ON sd.fy_code = fy.fy_code
     WHERE ub.is_active = true
   `);
 
@@ -181,6 +258,13 @@ export async function initializeDatabase() {
   await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_raw_invoice ON sales_data_raw(invoice_id)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_raw_batch ON sales_data_raw(batch_id)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_raw_invoice_batch ON sales_data_raw(invoice_id, batch_id)');
+  
+  // GIN and B-Tree indexes for AI high-fidelity queries
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_material_name_gin ON sales_data_raw USING GIN(to_tsvector(\'english\', material_name))');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_customer_name_gin ON sales_data_raw USING GIN(to_tsvector(\'english\', customer_name))');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_batch_no ON sales_data_raw(batch_no)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_plant ON sales_data_raw(plant)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_customer_no ON sales_data_raw(customer_no)');
 }
 
 /**

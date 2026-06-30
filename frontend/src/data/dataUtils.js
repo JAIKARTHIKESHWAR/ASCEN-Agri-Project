@@ -54,16 +54,19 @@ export function calculateKPIs(filteredData) {
       grossSales += item.salesAmountINR || 0;
       totalCOGM += item.cogm || 0;
     } else if (bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE') {
-      returnsValue += Math.abs(item.salesAmountINR || 0);
+      returnsValue += item.salesAmountINR || 0;
     } else if (bt === 'S1' || bt === 'ZS1') {
-      cancelledValue += Math.abs(item.salesAmountINR || 0);
+      cancelledValue += item.salesAmountINR || 0;
     } else if (bt === 'IPT' || bt === 'ZSTO') {
-      iptValue += Math.abs(item.salesAmountINR || 0);
+      iptValue += item.salesAmountINR || 0;
     }
   });
 
-  // Net External Sales = Gross Sales - Returns - Cancelled
-  const netExternalSales = Math.max(0, grossSales - returnsValue - cancelledValue);
+  returnsValue = Math.abs(returnsValue);
+  cancelledValue = Math.abs(cancelledValue);
+  iptValue = Math.abs(iptValue);
+
+  const netExternalSales = grossSales - returnsValue - cancelledValue;
 
   return {
     grossSales,

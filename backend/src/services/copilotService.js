@@ -1,4 +1,4 @@
-import { translateQuestionToPlan } from '../ai/queryTranslator.js';
+import { translateQuestionToPlan, repairSQLQuery } from '../ai/queryTranslator.js';
 import { executeQueryPlan } from '../services/queryExecutor.js';
 import { synthesizeAnswer } from '../ai/answerSynthesizer.js';
 import { dbRun, dbGet, dbAll, dbTransaction } from '../database.js';
@@ -27,6 +27,98 @@ const defaultSuggestions = [
 function sanitizeEncoding(str) {
   if (typeof str !== 'string') return str;
   return str.replace(/₹/g, 'Rs.');
+}
+
+/**
+ * Deterministically inject active dashboard filters into the AI-generated SQL.
+ * This is a safety net: even if the LLM ignores the filter context prompt,
+ * this function ensures the SQL always matches the dashboard's active scope.
+ */
+function injectMissingFilters(sql, mergedFilters) {
+  if (!sql || !mergedFilters) return sql;
+
+  const sqlLower = sql.toLowerCase();
+  let injected = sql;
+  const extraConditions = [];
+  let extraJoins = '';
+
+  // Division filter — requires JOIN materials
+  if (mergedFilters.division && !sqlLower.includes('division')) {
+    const hasMaterialsJoin = /join\s+materials\s+/i.test(sql);
+    if (!hasMaterialsJoin) {
+      // Find the FROM clause to append the JOIN
+      extraJoins += ` JOIN materials m ON sd.material_code = m.material_code`;
+    }
+    extraConditions.push(`m.division = '${mergedFilters.division.replace(/'/g, "''")}'`);
+  }
+
+  // State filter — requires JOIN territories
+  if (mergedFilters.state && !sqlLower.includes('state')) {
+    const hasTerritoriesJoin = /join\s+territories\s+/i.test(sql);
+    if (!hasTerritoriesJoin) {
+      extraJoins += ` JOIN territories t ON sd.territory_id = t.territory_id`;
+    }
+    extraConditions.push(`t.state ILIKE '${mergedFilters.state.replace(/'/g, "''")}' `);
+  }
+
+  // Crop filter — requires JOIN materials
+  if (mergedFilters.crop && !sqlLower.includes('crop')) {
+    const hasMaterialsJoin = /join\s+materials\s+/i.test(sql) || extraJoins.includes('materials');
+    if (!hasMaterialsJoin) {
+      extraJoins += ` JOIN materials m ON sd.material_code = m.material_code`;
+    }
+    extraConditions.push(`m.crop ILIKE '${mergedFilters.crop.replace(/'/g, "''")}' `);
+  }
+
+  // Distribution channel filter — requires JOIN customers
+  if (mergedFilters.distributionChannel && !sqlLower.includes('dist_channel') && !sqlLower.includes('distribution_channel')) {
+    const hasCustomersJoin = /join\s+customers\s+/i.test(sql);
+    if (!hasCustomersJoin) {
+      extraJoins += ` JOIN customers c ON sd.customer_id = c.customer_id`;
+    }
+    extraConditions.push(`c.dist_channel ILIKE '${mergedFilters.distributionChannel.replace(/'/g, "''")}' `);
+  }
+
+  if (extraConditions.length === 0 && !extraJoins) return sql;
+
+  // Inject extra JOINs right before WHERE (or at end of FROM/JOIN block)
+  if (extraJoins) {
+    const whereMatch = injected.match(/\bWHERE\b/i);
+    if (whereMatch) {
+      const whereIndex = injected.indexOf(whereMatch[0]);
+      injected = injected.slice(0, whereIndex) + extraJoins + ' ' + injected.slice(whereIndex);
+    } else {
+      // No WHERE clause — append JOINs before GROUP BY or ORDER BY or end
+      const endMatch = injected.match(/\b(GROUP BY|ORDER BY|LIMIT)\b/i);
+      if (endMatch) {
+        const endIndex = injected.indexOf(endMatch[0]);
+        injected = injected.slice(0, endIndex) + extraJoins + ' ' + injected.slice(endIndex);
+      } else {
+        injected += extraJoins;
+      }
+    }
+  }
+
+  // Inject extra WHERE conditions
+  if (extraConditions.length > 0) {
+    const condStr = extraConditions.join(' AND ');
+    const whereMatch = injected.match(/\bWHERE\b/i);
+    if (whereMatch) {
+      const whereIndex = injected.indexOf(whereMatch[0]) + whereMatch[0].length;
+      injected = injected.slice(0, whereIndex) + ' ' + condStr + ' AND' + injected.slice(whereIndex);
+    } else {
+      const endMatch = injected.match(/\b(GROUP BY|ORDER BY|LIMIT)\b/i);
+      if (endMatch) {
+        const endIndex = injected.indexOf(endMatch[0]);
+        injected = injected.slice(0, endIndex) + ' WHERE ' + condStr + ' ' + injected.slice(endIndex);
+      } else {
+        injected += ' WHERE ' + condStr;
+      }
+    }
+  }
+
+  console.log('[Filter Injection] Active filters applied to SQL:', extraConditions);
+  return injected;
 }
 
 /**
@@ -266,7 +358,10 @@ export async function processQuestion({ question, sessionId, filters }) {
     return responsePayload;
   }
 
-  // 9. Execute SQL Query
+  // 9. Deterministic filter injection — ensure SQL matches dashboard scope
+  queryPlan.sql = injectMissingFilters(queryPlan.sql, mergedFilters);
+
+  // 10. Execute SQL Query
   console.log("Executing SQL:", queryPlan.sql);
   const queryStartTime = Date.now();
   let resultRows = [];
@@ -276,8 +371,28 @@ export async function processQuestion({ question, sessionId, filters }) {
     resultRows = await executeQueryPlan(null, queryPlan, datasetId);
     console.log(`Query completed successfully, returned ${resultRows.length} records.`);
   } catch (e) {
-    console.error('SQL query execution failed:', e);
-    queryError = e.message;
+    console.warn('SQL query execution failed, attempting auto-repair...', e.message);
+    try {
+      const repairedSql = await repairSQLQuery(question, queryPlan.sql, e.message);
+      if (repairedSql) {
+        const originalHadClassification = (queryPlan.filters?.some(f => f.column === 'classification')) || queryPlan.sql.toLowerCase().includes('classification');
+        const repairedHasClassification = repairedSql.toLowerCase().includes('classification');
+        if (originalHadClassification && !repairedHasClassification) {
+          console.warn('Auto-repair dropped a classification filter, this likely produces incorrect aggregated totals. Rejecting repair.');
+          queryError = 'Auto-repair removed a required business filter (classification) rather than fixing the underlying join; refusing to use this query to avoid returning incorrect totals.';
+        } else {
+          console.log('Successfully repaired SQL:', repairedSql);
+          queryPlan.sql = repairedSql;
+          resultRows = await executeQueryPlan(null, queryPlan, datasetId);
+          queryError = null; // Cleared error!
+        }
+      } else {
+        throw e;
+      }
+    } catch (repairErr) {
+      console.error('SQL auto-repair failed:', repairErr);
+      queryError = repairErr.message;
+    }
   }
   const executionTime = Date.now() - queryStartTime;
 
@@ -404,16 +519,98 @@ export async function processQuestion({ question, sessionId, filters }) {
   }
 
   // 11. Synthesize Answer
-  const answer = await synthesizeAnswer(question, queryPlan, resultRows);
+  const synthesized = await synthesizeAnswer(question, queryPlan, resultRows, mergedFilters);
+  const answer = (synthesized && typeof synthesized === 'object') ? (synthesized.answer || '') : (synthesized || '');
+  const insights = (synthesized && typeof synthesized === 'object') ? (synthesized.insights || '') : '';
 
   // 12. Stateful Context merging & Visualization Preference updates
-  const planNav = queryPlan.navigation || {};
-  const planFilters = planNav.filters || {};
+  if (!queryPlan.navigation) {
+    queryPlan.navigation = {};
+  }
+  const planNav = queryPlan.navigation;
+  
+  // Rule-based deterministic navigation overrides
+  const NAV_RULES = [
+    {
+      keywords: ['crop', 'product', 'variety', 'top crop', 'revenue crop', 'material'],
+      navigateTo: 'product',
+      section: 'crops-revenue'
+    },
+    {
+      keywords: ['state', 'territory', 'region', 'geography', 'place', 'location', 'area'],
+      navigateTo: 'geography',
+      section: 'top-states'
+    },
+    {
+      keywords: ['return', 'refund', 'returned'],
+      navigateTo: 'returns',
+      section: 'returns-summary'
+    },
+    {
+      keywords: ['invoice', 'transaction', 'packet', 'batch', 'plant', 'expiry', 'sales order', 'created by', 'detail', 'list'],
+      navigateTo: 'transactions',
+      section: 'transaction-drilldown'
+    }
+  ];
+
+  const queryLower = question.toLowerCase();
+  let matchedRule = null;
+  for (const rule of NAV_RULES) {
+    if (rule.keywords.some(kw => queryLower.includes(kw))) {
+      matchedRule = rule;
+      break;
+    }
+  }
+
+  if (matchedRule) {
+    planNav.navigateTo = matchedRule.navigateTo;
+    planNav.section = matchedRule.section;
+    planNav.intent = 'show_sales_report';
+    console.log(`Deterministic navigation override matched: ${matchedRule.navigateTo} (${matchedRule.section})`);
+  }
+
+  if (!planNav.filters) {
+    planNav.filters = {};
+  }
+  const planFilters = planNav.filters;
+
+  // Dynamically enrich navigation filters using actual SQL results if it is a "top/highest/best" type query
+  const isTopQuery = queryLower.includes('highest') || queryLower.includes('top') || queryLower.includes('best') || queryLower.includes('maximum') || queryLower.includes('most');
+  
+  if (isTopQuery && resultRows.length > 0) {
+    const topRow = resultRows[0];
+    for (const key of Object.keys(topRow)) {
+      const val = topRow[key];
+      if (val === null || val === undefined) continue;
+      
+      const keyLower = key.toLowerCase();
+      // Only extract string names, ignore numeric metrics (like crop_revenue or state_sales)
+      if (isNaN(Number(val))) {
+        if (keyLower.includes('crop') || keyLower.includes('material_desc') || keyLower.includes('material_name')) {
+          planFilters.crop = String(val);
+        } else if (keyLower.includes('state')) {
+          planFilters.state = String(val);
+        } else if (keyLower.includes('division')) {
+          planFilters.division = String(val).toUpperCase();
+        } else if (keyLower.includes('channel') || keyLower.includes('dist_channel') || keyLower.includes('distribution_channel')) {
+          planFilters.distributionChannel = String(val);
+        }
+      }
+    }
+  }
 
   const updatedContextFilters = {
     ...sessionContext.filters,
     ...planFilters
   };
+
+  // Ensure active dashboard filters are always preserved in navigation
+  if (mergedFilters.division && !updatedContextFilters.division) {
+    updatedContextFilters.division = mergedFilters.division;
+  }
+  if (mergedFilters.fy && !updatedContextFilters.financialYear) {
+    updatedContextFilters.financialYear = mergedFilters.fy;
+  }
 
   // Remove keys explicitly nulled out
   Object.keys(planFilters).forEach(key => {

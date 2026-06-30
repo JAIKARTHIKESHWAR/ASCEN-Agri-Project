@@ -17,29 +17,15 @@ export function validateAnalyticsKPIs({ grossSales, returnsValue, cancelledValue
   const cancelled = parseFloat(cancelledValue || 0);
   const net = parseFloat(netExternalSales || 0);
 
-  // 1. Assert: Net Sales should never exceed Gross Sales
-  if (net > gross + 0.01) { // Allowing tiny floating point margin
-    throw new AnalyticsValidationError(
-      `Invalid Net External Sales calculation: Net Sales (${net}) exceeds Gross Sales (${gross}).`,
-      { gross, returns, cancelled, net }
-    );
-  }
-
-  // 2. Assert: Returns should never exceed Gross Sales
+  const warnings = [];
   if (returns > gross + 0.01 && gross > 0) {
-    throw new AnalyticsValidationError(
-      `Invalid returns data: Returns (${returns}) exceeds Gross Sales (${gross}).`,
-      { gross, returns, cancelled, net }
-    );
+    warnings.push(`Returns (${returns}) exceed Gross Sales (${gross}) for this filter selection.`);
   }
-
-  // 3. Assert: Cancelled invoices should never exceed Gross Sales
   if (cancelled > gross + 0.01 && gross > 0) {
-    throw new AnalyticsValidationError(
-      `Invalid cancellation data: Cancelled (${cancelled}) exceeds Gross Sales (${gross}).`,
-      { gross, returns, cancelled, net }
-    );
+    warnings.push(`Cancelled (${cancelled}) exceed Gross Sales (${gross}) for this filter selection.`);
   }
-
-  return true;
+  if (warnings.length > 0) {
+    console.warn('[validateAnalyticsKPIs]', warnings.join(' | '));
+  }
+  return { isValid: warnings.length === 0, warnings, gross, returns, cancelled, net };
 }

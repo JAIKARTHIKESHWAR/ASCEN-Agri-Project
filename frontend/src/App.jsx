@@ -405,7 +405,8 @@ function App() {
   const cropsByDivision = useMemo(() => {
     const vg = [...new Set(dataset.filter(item => item.division === 'VG').map(item => item.crop).filter(Boolean))].sort();
     const fc = [...new Set(dataset.filter(item => item.division === 'FC').map(item => item.crop).filter(Boolean))].sort();
-    return { VG: vg, FC: fc };
+    const cm = [...new Set(dataset.filter(item => item.division === 'CM').map(item => item.crop).filter(Boolean))].sort();
+    return { VG: vg, FC: fc, CM: cm };
   }, [dataset]);
 
   // Compute filtered dataset dynamically based on filters
@@ -465,6 +466,13 @@ function App() {
       primaryMonth: '',
       comparisonMonth: ''
     });
+
+    const activeDatasets = datasetsList.filter(ds => ds.batch_id !== 'all');
+    if (activeDatasets.length > 1) {
+      setActiveDatasetId('all');
+      localStorage.setItem('activeDatasetId', 'all');
+      reloadDatasetFromBackend('all');
+    }
   };
 
   const activeFiltersCount = useMemo(() => {

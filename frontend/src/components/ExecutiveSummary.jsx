@@ -141,16 +141,17 @@ function ExecutiveSummary({
   const divisionData = isComparisonMode && comparisonMetrics?.divisionContribution
     ? comparisonMetrics.divisionContribution.map(d => ({
       ...d,
-      label: d.label === 'VG' ? 'Vegetables (VG)' : d.label === 'FC' ? 'Field Crops (FC)' : d.label
+      label: d.label === 'VG' ? 'Vegetables (VG)' : d.label === 'FC' ? 'Field Crops (FC)' : d.label === 'CM' ? 'Common (CM)' : d.label
     }))
     : Object.keys(divMap).map(key => ({
-      label: key === 'VG' ? 'Vegetables (VG)' : key === 'FC' ? 'Field Crops (FC)' : key,
+      label: key === 'VG' ? 'Vegetables (VG)' : key === 'FC' ? 'Field Crops (FC)' : key === 'CM' ? 'Common (CM)' : key,
       value: divMap[key]
     }));
 
   // Calculate division totals for dynamic state contribution calculations
   const divTotalVG = divMap.VG || 0;
   const divTotalFC = divMap.FC || 0;
+  const divTotalCM = divMap.CM || 0;
 
   const getStatePrimaryDivisionTotal = (stateName) => {
     let vgSales = 0;
@@ -174,6 +175,7 @@ function ExecutiveSummary({
   const totalNetSales = kpis.netExternalSales;
   let vgNet = 0;
   let fcNet = 0;
+  let cmNet = 0;
   filteredData.forEach(item => {
     const bt = (item.billingType || '').toUpperCase();
     const isGross = bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2';
@@ -187,15 +189,21 @@ function ExecutiveSummary({
       if (isGross) fcNet += Math.abs(item.salesAmountINR || 0);
       else if (isDeduction) fcNet -= Math.abs(item.salesAmountINR || 0);
     }
+    if (item.division === 'CM') {
+      if (isGross) cmNet += Math.abs(item.salesAmountINR || 0);
+      else if (isDeduction) cmNet -= Math.abs(item.salesAmountINR || 0);
+    }
   });
 
   const vgNetShare = totalNetSales > 0 ? (vgNet / totalNetSales) * 100 : 0;
   const fcNetShare = totalNetSales > 0 ? (fcNet / totalNetSales) * 100 : 0;
+  const cmNetShare = totalNetSales > 0 ? (cmNet / totalNetSales) * 100 : 0;
 
   const divisionRankedData = [
     { label: 'Vegetables (VG)', share: vgNetShare, gross: divTotalVG, color: 'var(--color-sales-gross)', icon: 'tomato' },
-    { label: 'Field Crops (FC)', share: fcNetShare, gross: divTotalFC, color: 'var(--color-sales-net)', icon: 'leaf' }
-  ].sort((a, b) => b.share - a.share);
+    { label: 'Field Crops (FC)', share: fcNetShare, gross: divTotalFC, color: 'var(--color-sales-net)', icon: 'leaf' },
+    { label: 'Common (CM)', share: cmNetShare, gross: divTotalCM, color: 'var(--color-returns)', icon: 'seedling' }
+  ].filter(d => d.gross > 0).sort((a, b) => b.share - a.share);
 
   const stateGrossMap = {};
   const cropGrossMap = {};

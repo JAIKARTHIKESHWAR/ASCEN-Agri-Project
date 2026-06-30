@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DonutChart, formatCurrency } from './CustomCharts';
 
 export default function ProductPerformance({ filteredData }) {
-  const [activeDiv, setActiveDiv] = useState('VG'); // 'VG' or 'FC'
+  const [activeDiv, setActiveDiv] = useState('VG'); // 'VG', 'FC', or 'CM'
   const [selectedCrop, setSelectedCrop] = useState(null);
 
   // Auto-detect and switch division if filteredData contains items of a different division
@@ -114,6 +114,13 @@ export default function ProductPerformance({ filteredData }) {
           onClick={() => handleDivChange('FC')}
         >
           Field Crops (FC) Products
+        </button>
+        <button
+          className={`menu-item ${activeDiv === 'CM' ? 'active' : ''}`}
+          style={{ paddingBottom: '12px', borderBottom: activeDiv === 'CM' ? '2px solid var(--color-sales-gross)' : 'none', borderRadius: 0 }}
+          onClick={() => handleDivChange('CM')}
+        >
+          Common (CM) Products
         </button>
       </div>
 

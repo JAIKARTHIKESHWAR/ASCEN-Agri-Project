@@ -49,7 +49,6 @@ const COLUMN_ALIASES = {
   // ── Billing type ──────────────────────────────────────────────────────────
   billingtype: 'billing_type',
   type: 'billing_type',
-  // "Billing Type Descrp." → after strip of dot → "billingtypedescrp"
   billingtypedescrp: 'billing_type_desc',
   billingtypedescription: 'billing_type_desc',
   billingtypedesc: 'billing_type_desc',
@@ -57,39 +56,37 @@ const COLUMN_ALIASES = {
   typedesc: 'billing_type_desc',
   description: 'billing_type_desc',
 
-  // ── Distribution channel ──────────────────────────────────────────────────
-  distributionchannel: 'dist_channel',
-  distchannel: 'dist_channel',
-  channel: 'dist_channel',
+  // ── Distribution channel & Division ────────────────────────────────────────
+  distributionchannel: 'distribution_channel',
+  distchannel: 'distribution_channel',
+  channel: 'distribution_channel',
+  division: 'division',
+  div: 'division',
 
   // ── Customer ──────────────────────────────────────────────────────────────
-  customerid: 'customer_id',
-  customercode: 'customer_id',
-  customerno: 'customer_id',   // ← Excel: "Customer No."
-  customernumber: 'customer_id',
-  custno: 'customer_id',
-  custid: 'customer_id',
+  customerid: 'customer_no',
+  customercode: 'customer_no',
+  customerno: 'customer_no',   // ← Excel: "Customer No."
+  customernumber: 'customer_no',
+  custno: 'customer_no',
+  custid: 'customer_no',
   customername: 'customer_name',
   custname: 'customer_name',
   customer: 'customer_name',
 
-  // ── Division ──────────────────────────────────────────────────────────────
-  division: 'division',
-  div: 'division',
-
   // ── Crop / Material ───────────────────────────────────────────────────────
-  crop: 'crop',
-  cropname: 'crop',          // ← Excel: "Crop Name"
-  variety: 'variety',
-  varietyname: 'variety',       // ← Excel: "Variety Name"
+  crop: 'crop_name',
+  cropname: 'crop_name',          // ← Excel: "Crop Name"
+  variety: 'variety_name',
+  varietyname: 'variety_name',       // ← Excel: "Variety Name"
   materialcode: 'material_code',
   matcode: 'material_code',
   material: 'material_code',
-  materialdescription: 'material_desc',
-  materialname: 'material_desc', // ← Excel: "Material Name"
-  materialdesc: 'material_desc',
-  matdesc: 'material_desc',
-  matname: 'material_desc',
+  materialdescription: 'material_name',
+  materialname: 'material_name', // ← Excel: "Material Name"
+  materialdesc: 'material_name',
+  matdesc: 'material_name',
+  matname: 'material_name',
 
   // ── Sales unit / own-trade ────────────────────────────────────────────────
   salesunit: 'sales_unit',
@@ -104,33 +101,39 @@ const COLUMN_ALIASES = {
   // ── Territory ─────────────────────────────────────────────────────────────
   state: 'state',
   statename: 'state',
-  territory: 'territory',
-  territoryname: 'territory',     // ← Excel: "Territory Name"
-  terrname: 'territory',
-  // "Territory ID" col — keep for reference but do NOT use as DB territory_id
-  // (DB territory_id is an auto-generated serial from the territories table)
-  territoryid: 'territory_ref',
-  terrid: 'territory_ref',
+  territory: 'territory_name',
+  territoryname: 'territory_name',     // ← Excel: "Territory Name"
+  terrname: 'territory_name',
+  territoryid: 'territory_id_excel',
+  terrid: 'territory_id_excel',
 
   // ── Sales hierarchy ───────────────────────────────────────────────────────
-  am: 'am',
-  areamanager: 'am',
-  areaman: 'am',
-  rbm: 'rbm',
-  regionalbusinessmanager: 'rbm',
-  dbm: 'dbm',
-  districtbusinessmanager: 'dbm',
+  tiid: 'ti_id',
+  tiname: 'ti_name',
+  amid: 'am_id',
+  amname: 'am_name',
+  am: 'am_name',
+  areamanager: 'am_name',
+  areaman: 'am_name',
+  rbmid: 'rbm_id',
+  rbmname: 'rbm_name',
+  rbm: 'rbm_name',
+  regionalbusinessmanager: 'rbm_name',
+  dbmid: 'dbm_id',
+  dbmname: 'dbm_name',
+  dbm: 'dbm_name',
+  districtbusinessmanager: 'dbm_name',
 
   // ── Metrics ───────────────────────────────────────────────────────────────
   quantity: 'qty',
   qty: 'qty',
   salesprice: 'sales_price',
-  salespriceinr: 'sales_price',   // ← Excel: "Sales Price INR"
-  salespriceperinr: 'sales_price',
+  salespriceinr: 'sales_price_inr',   // ← Excel: "Sales Price INR"
+  salespriceperinr: 'sales_price_inr',
   price: 'sales_price',
   rate: 'sales_price',
+  salesamount: 'sales_amount',
   salesamountinr: 'sales_amount_inr',
-  salesamount: 'sales_amount_inr',
   salesamt: 'sales_amount_inr',
   salesamtinr: 'sales_amount_inr',
   amountinr: 'sales_amount_inr',
@@ -149,8 +152,24 @@ const COLUMN_ALIASES = {
   fy: 'fy_code',
   financialyear: 'fy_code',
   fiscalyear: 'fy_code',
-  // Excel "Year" column = raw calendar year number (2024, 2025, …)
-  year: 'fy_code',
+  year: 'fiscal_year', // Excel "Year" column = raw calendar year number
+
+  // ── Extra Document Details ───────────────────────────────────────────────
+  plant: 'plant',
+  storagelocation: 'storage_location',
+  salesorderno: 'sales_order_no',
+  customerreference: 'customer_reference',
+  indentno: 'indent_no',
+  iptsrrequestno: 'ipt_sr_request_no',
+  iptsrrequestdate: 'ipt_sr_request_date',
+  accdocno: 'accounting_doc_no',
+  lineitemno: 'line_item_no',
+  batchno: 'batch_no',
+  expirydate: 'expiry_date',
+  currency: 'currency',
+  exchangerate: 'exchange_rate',
+  basecurrencyinr: 'base_currency_inr',
+  createdby: 'created_by'
 };
 
 /**
@@ -437,21 +456,22 @@ export async function importCSV(filePath, originalFileName, fileHash) {
         // ── String fields ─────────────────────────────────────────────────
         const billingType = row.billing_type ? String(row.billing_type).trim() : 'F2';
         const billingDesc = row.billing_type_desc ? String(row.billing_type_desc).trim() : 'Standard Invoice';
-        const distChannel = row.dist_channel ? String(row.dist_channel).trim() : 'Dealer';
-        const customerId = row.customer_id ? String(row.customer_id).trim() : 'CUST-000';
+        const distChannel = row.distribution_channel ? String(row.distribution_channel).trim() : 'Dealer';
+        const customerId = row.customer_no ? String(row.customer_no).trim() : 'CUST-000';
         const customerName = row.customer_name ? String(row.customer_name).trim() : 'Unknown Customer';
         const division = row.division ? String(row.division).trim().toUpperCase() : 'VG';
-        const crop = row.crop ? String(row.crop).trim() : 'Unknown Crop';
-        const variety = row.variety ? String(row.variety).trim() : 'Unknown Variety';
+        const crop = row.crop_name ? String(row.crop_name).trim() : 'Unknown Crop';
+        const variety = row.variety_name ? String(row.variety_name).trim() : 'Unknown Variety';
         const salesUnit = row.sales_unit ? String(row.sales_unit).trim() : 'Packets';
         const ownTrade = row.own_trade ? String(row.own_trade).trim() : 'Own';
         const materialCode = row.material_code ? String(row.material_code).trim() : 'MAT-000';
-        const materialDesc = row.material_desc ? String(row.material_desc).trim() : 'Unknown Material';
+        const materialDesc = row.material_name ? String(row.material_name).trim() : 'Unknown Material';
         const state = row.state ? String(row.state).trim() : 'Unknown State';
-        const territory = row.territory ? String(row.territory).trim() : 'Unknown Territory';
-        const amName = row.am ? String(row.am).trim() : null;
-        const rbmName = row.rbm ? String(row.rbm).trim() : null;
-        const dbmName = row.dbm ? String(row.dbm).trim() : null;
+        const territory = row.territory_name ? String(row.territory_name).trim() : 'Unknown Territory';
+        const amName = row.am_name ? String(row.am_name).trim() : null;
+        const rbmName = row.rbm_name ? String(row.rbm_name).trim() : null;
+        const dbmName = row.dbm_name ? String(row.dbm_name).trim() : null;
+        
         // ── Season Code — use raw value or default to 'N/A' ────────────────
         let seasonCode = (row.season_code && String(row.season_code).trim() !== 'NaN')
           ? String(row.season_code).trim()
@@ -459,9 +479,47 @@ export async function importCSV(filePath, originalFileName, fileHash) {
 
         // ── Numeric fields (strip commas, parse float) ────────────────────
         const qty = Math.round(parseNumeric(row.qty));
-        const salesPrice = parseNumeric(row.sales_price);
+        const salesPrice = parseNumeric(row.sales_price_inr || row.sales_price);
         const salesAmountINR = parseNumeric(row.sales_amount_inr) || (qty * salesPrice);
         const cogm = parseNumeric(row.cogm) || (salesAmountINR * 0.7);
+
+        // ── New raw columns ────────────────────────────────────────────────
+        const billing_type_desc = row.billing_type_desc ? String(row.billing_type_desc).trim() : null;
+        const distribution_channel = row.distribution_channel ? String(row.distribution_channel).trim() : null;
+        const plant = row.plant ? String(row.plant).trim() : null;
+        const storage_location = row.storage_location ? String(row.storage_location).trim() : null;
+        const sales_order_no = row.sales_order_no ? String(row.sales_order_no).trim() : null;
+        const customer_reference = row.customer_reference ? String(row.customer_reference).trim() : null;
+        const indent_no = row.indent_no ? String(row.indent_no).trim() : null;
+        const ipt_sr_request_no = row.ipt_sr_request_no ? String(row.ipt_sr_request_no).trim() : null;
+        const ipt_sr_request_date = parseExcelDate(row.ipt_sr_request_date);
+        const accounting_doc_no = row.accounting_doc_no ? String(row.accounting_doc_no).trim() : null;
+        const fiscal_year = row.fiscal_year ? parseInt(String(row.fiscal_year).trim(), 10) : null;
+        const customer_no = row.customer_no ? String(row.customer_no).trim() : null;
+        const customer_name = row.customer_name ? String(row.customer_name).trim() : null;
+        const line_item_no = row.line_item_no ? String(row.line_item_no).trim() : null;
+        const crop_name = row.crop_name ? String(row.crop_name).trim() : null;
+        const variety_name = row.variety_name ? String(row.variety_name).trim() : null;
+        const own_trade = row.own_trade ? String(row.own_trade).trim() : null;
+        const material_name = row.material_name ? String(row.material_name).trim() : null;
+        const batch_no = row.batch_no ? String(row.batch_no).trim() : null;
+        const expiry_date = parseExcelDate(row.expiry_date);
+        const currency = row.currency ? String(row.currency).trim() : null;
+        const sales_price = row.sales_price !== undefined ? parseNumeric(row.sales_price) : null;
+        const sales_amount = row.sales_amount !== undefined ? parseNumeric(row.sales_amount) : null;
+        const exchange_rate = row.exchange_rate !== undefined ? parseNumeric(row.exchange_rate) : null;
+        const base_currency_inr = row.base_currency_inr ? String(row.base_currency_inr).trim() : null;
+        const sales_price_inr = row.sales_price_inr !== undefined ? parseNumeric(row.sales_price_inr) : null;
+        const territory_name = row.territory_name ? String(row.territory_name).trim() : null;
+        const ti_id = row.ti_id ? String(row.ti_id).trim() : null;
+        const ti_name = row.ti_name ? String(row.ti_name).trim() : null;
+        const am_id = row.am_id ? String(row.am_id).trim() : null;
+        const am_name = row.am_name ? String(row.am_name).trim() : null;
+        const rbm_id = row.rbm_id ? String(row.rbm_id).trim() : null;
+        const rbm_name = row.rbm_name ? String(row.rbm_name).trim() : null;
+        const dbm_id = row.dbm_id ? String(row.dbm_id).trim() : null;
+        const dbm_name = row.dbm_name ? String(row.dbm_name).trim() : null;
+        const created_by = row.created_by ? String(row.created_by).trim() : null;
 
         // Seed FY lookup
         await dbRun(
@@ -532,14 +590,28 @@ export async function importCSV(filePath, originalFileName, fileHash) {
           territoryMap.set(terrKey, territoryId);
         }
 
-        // Insert sales row — directly into sales_data_raw
+        // Insert sales row — directly into sales_data_raw with all 48 columns
         await dbRun(
           `INSERT INTO sales_data_raw (
-            invoice_id, invoice_date, billing_type, customer_id, material_code,
-            territory_id, qty, sales_unit, sales_amount_inr, cogm, season_code, fy_code, batch_id
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-          [invoiceId, date, billingType, customerId, materialCode,
-            territoryId, qty, salesUnit, salesAmountINR, cogm, seasonCode, fyCode, batchId]
+            batch_id, invoice_id, invoice_date, billing_type, customer_id, material_code, territory_id, qty, sales_unit, sales_amount_inr, cogm, season_code, fy_code,
+            billing_type_desc, division, distribution_channel, state, plant, storage_location, sales_order_no, customer_reference, indent_no, ipt_sr_request_no, ipt_sr_request_date,
+            accounting_doc_no, fiscal_year, customer_no, customer_name, line_item_no, crop_name, variety_name, own_trade, material_name, batch_no, expiry_date,
+            currency, sales_price, sales_amount, exchange_rate, base_currency_inr, sales_price_inr, territory_name,
+            ti_id, ti_name, am_id, am_name, rbm_id, rbm_name, dbm_id, dbm_name, created_by
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+            $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+            $25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
+            $36,$37,$38,$39,$40,$41,$42,
+            $43,$44,$45,$46,$47,$48,$49,$50,$51
+          )`,
+          [
+            batchId, invoiceId, date, billingType, customerId, materialCode, territoryId, qty, salesUnit, salesAmountINR, cogm, seasonCode, fyCode,
+            billing_type_desc, division, distribution_channel, state, plant, storage_location, sales_order_no, customer_reference, indent_no, ipt_sr_request_no, ipt_sr_request_date,
+            accounting_doc_no, fiscal_year, customer_no, customer_name, line_item_no, crop_name, variety_name, own_trade, material_name, batch_no, expiry_date,
+            currency, sales_price, sales_amount, exchange_rate, base_currency_inr, sales_price_inr, territory_name,
+            ti_id, ti_name, am_id, am_name, rbm_id, rbm_name, dbm_id, dbm_name, created_by
+          ]
         );
 
         importedCount++;

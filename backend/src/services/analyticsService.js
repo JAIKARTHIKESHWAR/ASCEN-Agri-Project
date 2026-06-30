@@ -27,8 +27,7 @@ export async function getSummaryData(whereClause, sqlParams) {
   const grossSales = parseFloat(kpiRes.gross_sales || 0);
   const returnsValue = parseFloat(kpiRes.returns_value || 0);
   const cancelledValue = parseFloat(kpiRes.cancelled_value || 0);
-  const totalCOGM = parseFloat(kpiRes.total_cogm || 0);
-  const netExternalSales = Math.max(0, grossSales - returnsValue - cancelledValue);
+  const netExternalSales = grossSales - returnsValue - cancelledValue;
 
   // Monthly Trend
   const trendSql = `
@@ -124,7 +123,7 @@ export async function getSummaryData(whereClause, sqlParams) {
     GROUP BY label
   `;
   const channelMixRes = await originalDbAll(channelMixSql, sqlParams);
-  
+
   const channelSalesAgg = {
     'Dealer & Distributor': 0,
     'Institutional Sales': 0,
@@ -151,8 +150,7 @@ export async function getSummaryData(whereClause, sqlParams) {
     value: channelSalesAgg[name]
   })).sort((a, b) => b.value - a.value);
 
-  // Dataset health metadata (FY codes)
-  const fyRows = await originalDbAll('SELECT DISTINCT fy_code FROM sales_data_raw WHERE batch_id = $1', [sqlParams[0] || null]);
+  const fyRows = await originalDbAll('SELECT DISTINCT fy_code FROM sales_data_raw', []);
   const fyCoverage = fyRows.map(r => r.fy_code);
   const lastUpdatedFormatted = kpiRes.last_updated ? new Date(kpiRes.last_updated).toISOString().split('T')[0] : 'N/A';
 
@@ -195,7 +193,7 @@ export async function getSalesKPIs(whereClause, sqlParams) {
   const returnsValue = parseFloat(kpis.returns_value || 0);
   const cancelledValue = parseFloat(kpis.cancelled_value || 0);
   const totalCOGM = parseFloat(kpis.total_cogm || 0);
-  const netExternalSales = Math.max(0, grossSales - returnsValue - cancelledValue);
+  const netExternalSales = grossSales - returnsValue - cancelledValue;
   return { grossSales, returnsValue, cancelledValue, totalCOGM, netExternalSales };
 }
 

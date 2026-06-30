@@ -75,6 +75,7 @@ function FilterBar({
             <option value="">All Divisions</option>
             <option value="VG">Vegetable Division (VG)</option>
             <option value="FC">Field Crops Division (FC)</option>
+            <option value="CM">Common (CM)</option>
           </select>
         </div>
 

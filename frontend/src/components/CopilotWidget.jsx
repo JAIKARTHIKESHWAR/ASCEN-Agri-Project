@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { formatCurrencyINR } from '../utils/formatUtils';
 
 const SUGGESTED_PROMPTS = [
   { label: 'Sales for FY2627', text: 'Show sales report for FY2627' },
@@ -243,7 +244,12 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
       // Map filters for the ask request
       const requestFilters = {};
       if (currentFilters) {
-        if (currentFilters.fy) requestFilters.fy_code = currentFilters.fy;
+        if (currentFilters.fy) {
+          requestFilters.fy_code = currentFilters.fy;
+          requestFilters.datasetId = currentFilters.fy;
+        } else {
+          requestFilters.datasetId = 'all';
+        }
         if (currentFilters.division) requestFilters.division = currentFilters.division;
         if (currentFilters.distributionChannel) requestFilters.dist_channel = currentFilters.distributionChannel;
         if (currentFilters.state) requestFilters.state = currentFilters.state;
@@ -311,7 +317,12 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
       // Load current filters context
       const requestFilters = {};
       if (currentFilters) {
-        if (currentFilters.fy) requestFilters.fy_code = currentFilters.fy;
+        if (currentFilters.fy) {
+          requestFilters.fy_code = currentFilters.fy;
+          requestFilters.datasetId = currentFilters.fy;
+        } else {
+          requestFilters.datasetId = 'all';
+        }
         if (currentFilters.division) requestFilters.division = currentFilters.division;
         if (currentFilters.distributionChannel) requestFilters.dist_channel = currentFilters.distributionChannel;
         if (currentFilters.state) requestFilters.state = currentFilters.state;
@@ -422,6 +433,69 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
     }
   };
 
+  const renderMessageContent = (text) => {
+    if (!text) return '';
+    
+    // 1. Format raw rupee figures and escape HTML entities for safety
+    let escaped = text.replace(/₹\s?(-?\d+(\.\d+)?)/g, (_, num) => formatCurrencyINR(num));
+    escaped = escaped
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+      
+    // 2. Parse Markdown Tables
+    const tableRegex = /((?:\|.*\|(?:\r?\n)?)+)/g;
+    escaped = escaped.replace(tableRegex, (match) => {
+      const lines = match.trim().split('\n');
+      if (lines.length < 2) return match;
+      
+      let htmlTable = '<table style="width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.85rem; border: 1px solid var(--border-color, #e2e8f0); border-radius: 4px; overflow: hidden;">';
+      let hasHeader = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.includes('|-') || line.includes('| -') || line.match(/^\|?\s*:?-+:?\s*\|/)) {
+          continue; // skip separator lines
+        }
+        
+        const cells = line.split('|').map(c => c.trim()).filter((c, idx, arr) => {
+          return idx > 0 && idx < arr.length - 1;
+        });
+        
+        if (cells.length === 0) continue;
+        
+        if (!hasHeader) {
+          htmlTable += '<thead style="background-color: var(--bg-secondary, #f8fafc); border-bottom: 2px solid var(--border-color, #e2e8f0);">';
+          htmlTable += '<tr>';
+          cells.forEach(cell => {
+            htmlTable += `<th style="padding: 8px 10px; text-align: left; font-weight: bold; border: 1px solid var(--border-color, #e2e8f0);">${cell}</th>`;
+          });
+          htmlTable += '</tr></thead><tbody>';
+          hasHeader = true;
+        } else {
+          htmlTable += '<tr style="border-bottom: 1px solid var(--border-color, #e2e8f0);">';
+          cells.forEach(cell => {
+            htmlTable += `<td style="padding: 8px 10px; border: 1px solid var(--border-color, #e2e8f0);">${cell}</td>`;
+          });
+          htmlTable += '</tr>';
+        }
+      }
+      
+      htmlTable += '</tbody></table>';
+      return htmlTable;
+    });
+
+    // 3. Parse inline styles (headers, bold, italics, newlines) and clean unmatched hashes
+    const html = escaped
+      .replace(/^#{1,6}\s*(.*)$/gim, '<h5 style="margin-top:10px;margin-bottom:4px;font-weight:600;font-size:0.9rem;color:var(--text-primary);">$1</h5>')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/#+/g, '')
+      .replace(/\n/g, '<br/>');
+      
+    return <div style={{ display: 'inline-block', width: '100%' }} dangerouslySetInnerHTML={{ __html: html }} />;
+  };
+
   return (
     <>
       {/* Floating Widget Toggle Trigger Button */}
@@ -528,7 +602,7 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                   return (
                     <div key={index} className={`copilot-msg ${isUser ? 'user' : 'ai'}`}>
                       <div className="copilot-bubble" style={{ position: 'relative', paddingBottom: !isUser ? '26px' : '12px' }}>
-                        {contentText}
+                        {renderMessageContent(contentText)}
                         {navNotice && (
                           <div style={{ marginTop: '8px', fontSize: '0.7rem', fontStyle: 'italic', color: 'var(--color-sales-net)', fontWeight: 'bold' }}>
                             {navNotice}
