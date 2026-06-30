@@ -27,6 +27,151 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
   const audioChunksRef = useRef([]);
 
   const messagesEndRef = useRef(null);
+  
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const audioRef = useRef(null);
+  const activeTtsIdRef = useRef(0);
+
+  const stopSpeaking = () => {
+    activeTtsIdRef.current++;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    setIsSpeaking(false);
+    setSpeakingMessageId(null);
+  };
+
+  const startSpeaking = async (msgId, text) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+
+    const requestId = ++activeTtsIdRef.current;
+
+    setIsSpeaking(true);
+    setSpeakingMessageId(msgId);
+
+    try {
+      const res = await fetch('/api/copilot/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text })
+      });
+
+      if (!res.ok) {
+        throw new Error('TTS generation failed');
+      }
+
+      if (requestId !== activeTtsIdRef.current) {
+        return;
+      }
+
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        if (requestId === activeTtsIdRef.current) {
+          setIsSpeaking(false);
+          setSpeakingMessageId(null);
+        }
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      audio.onerror = () => {
+        if (requestId === activeTtsIdRef.current) {
+          setIsSpeaking(false);
+          setSpeakingMessageId(null);
+        }
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      await audio.play();
+    } catch (err) {
+      console.error('Failed to play TTS:', err);
+      if (requestId === activeTtsIdRef.current) {
+        setIsSpeaking(false);
+        setSpeakingMessageId(null);
+      }
+    }
+  };
+
+  // Voice recording logic
+  const startRecording = async () => {
+    try {
+      setVoiceState('listening');
+      setIsRecording(true);
+      audioChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        setIsRecording(false);
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        // Stop audio tracks to release microphone
+        stream.getTracks().forEach(track => track.stop());
+
+        if (audioBlob.size < 2000) {
+          setVoiceState('failed');
+          alert('Audio recording is too short or invalid. Please speak clearly.');
+          setTimeout(() => setVoiceState('idle'), 2000);
+          return;
+        }
+
+        await sendAudioPayload(audioBlob);
+      };
+
+      mediaRecorder.start();
+    } catch (err) {
+      console.error('Mic initialization or recording start error:', err);
+      setVoiceState('failed');
+      setIsRecording(false);
+      alert(`Could not start voice recording: ${err.message || 'Please check microphone permission.'}`);
+      setTimeout(() => setVoiceState('idle'), 2000);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      stopSpeaking();
+      stopRecording();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -125,14 +270,19 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
 
       const data = await response.json();
       const aiTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      const textToSpeak = data.insights || data.answer;
 
-      // Add AI reply
-      setMessages(prev => [...prev, {
-        sender: 'ai',
-        text: data.insights || data.answer,
-        timestamp: aiTime,
-        navNotice: data.navigateTo ? `Navigated to ${data.navigateTo} (${data.section})` : null
-      }]);
+      // Add AI reply and trigger auto TTS
+      setMessages(prev => {
+        const newMsgIndex = prev.length;
+        setTimeout(() => startSpeaking(newMsgIndex, textToSpeak), 50);
+        return [...prev, {
+          sender: 'ai',
+          text: textToSpeak,
+          timestamp: aiTime,
+          navNotice: data.navigateTo ? `Navigated to ${data.navigateTo} (${data.section})` : null
+        }];
+      });
 
       // Propagate the navigation and filter updates to App.jsx
       if (onAIResponse) {
@@ -148,51 +298,6 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
       }]);
     } finally {
       setIsTyping(false);
-    }
-  };
-
-  // Voice recording logic
-  const startRecording = async () => {
-    try {
-      setVoiceState('listening');
-      audioChunksRef.current = [];
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-        // Stop audio tracks to release microphone
-        stream.getTracks().forEach(track => track.stop());
-
-        if (audioBlob.size < 2000) {
-          setVoiceState('failed');
-          alert('Audio recording is too short or invalid. Please speak clearly.');
-          setTimeout(() => setVoiceState('idle'), 2000);
-          return;
-        }
-
-        await sendAudioPayload(audioBlob);
-      };
-
-      mediaRecorder.start();
-    } catch (err) {
-      console.error('Mic initialization or recording start error:', err);
-      setVoiceState('failed');
-      alert(`Could not start voice recording: ${err.message || 'Please check microphone permission.'}`);
-      setTimeout(() => setVoiceState('idle'), 2000);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
     }
   };
 
@@ -232,21 +337,23 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
 
       const userTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
       const aiTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      const textToSpeak = data.insights || data.answer;
 
-      // Add user transcript message
-      setMessages(prev => [...prev, {
-        sender: 'user',
-        text: data.transcript,
-        timestamp: userTime
-      }]);
-
-      // Add AI reply message
-      setMessages(prev => [...prev, {
-        sender: 'ai',
-        text: data.insights || data.answer,
-        timestamp: aiTime,
-        navNotice: data.navigateTo ? `Navigated to ${data.navigateTo} (${data.section})` : null
-      }]);
+      // Add user transcript, AI reply, and trigger auto TTS
+      setMessages(prev => {
+        const nextIndex = prev.length + 1;
+        setTimeout(() => startSpeaking(nextIndex, textToSpeak), 50);
+        return [...prev, {
+          sender: 'user',
+          text: data.transcript,
+          timestamp: userTime
+        }, {
+          sender: 'ai',
+          text: textToSpeak,
+          timestamp: aiTime,
+          navNotice: data.navigateTo ? `Navigated to ${data.navigateTo} (${data.section})` : null
+        }];
+      });
 
       setVoiceState('completed');
       setTimeout(() => setVoiceState('idle'), 1000);
@@ -323,6 +430,10 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
         onClick={() => {
           setIsOpen(!isOpen);
           setIsMinimized(false);
+          if (isOpen) {
+            stopSpeaking();
+            stopRecording();
+          }
         }}
         title="Acsen Sales BI Copilot"
       >
@@ -387,7 +498,11 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
               {/* Close Action */}
               <button
                 className="copilot-btn-action"
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  setIsOpen(false);
+                  stopSpeaking();
+                  stopRecording();
+                }}
                 title="Close drawer"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 14, height: 14 }}>
@@ -412,11 +527,39 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
 
                   return (
                     <div key={index} className={`copilot-msg ${isUser ? 'user' : 'ai'}`}>
-                      <div className="copilot-bubble">
+                      <div className="copilot-bubble" style={{ position: 'relative', paddingBottom: !isUser ? '26px' : '12px' }}>
                         {contentText}
                         {navNotice && (
                           <div style={{ marginTop: '8px', fontSize: '0.7rem', fontStyle: 'italic', color: 'var(--color-sales-net)', fontWeight: 'bold' }}>
-
+                            {navNotice}
+                          </div>
+                        )}
+                        {!isUser && (
+                          <div className="copilot-tts-controls" style={{ position: 'absolute', bottom: '4px', right: '8px', display: 'flex', gap: '6px' }}>
+                            {isSpeaking && speakingMessageId === index ? (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); stopSpeaking(); }}
+                                title="Stop speaking"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center', color: 'var(--color-sales-net, #3b82f6)' }}
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                                  <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                                  <line x1="23" y1="9" x2="17" y2="15"></line>
+                                  <line x1="17" y1="9" x2="23" y2="15"></line>
+                                </svg>
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); startSpeaking(index, contentText); }}
+                                title="Listen"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center', color: 'var(--text-muted, #64748b)' }}
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                </svg>
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -454,22 +597,14 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                 </div>
               </div>
 
-              {/* Microphone & Voice Status Bar */}
-              {voiceState !== 'idle' && (
-                <div style={{ padding: '6px 14px', fontSize: '0.7rem', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: voiceState === 'failed' ? '#ef4444' : '#10b981', animation: voiceState === 'listening' || voiceState === 'transcribing' || voiceState === 'thinking' ? 'pulse 1s infinite' : 'none' }} />
-                  <span style={{ fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{voiceState}...</span>
-                </div>
-              )}
-
               {/* Text Area Inputs */}
               <div className="copilot-input-area">
                 <div className="copilot-input-inner">
-                  {/* Microphone Button */}
+                  {/* Microphone Button inside text field */}
                   <button
-                    className={`copilot-btn-mic ${voiceState === 'listening' ? 'recording' : ''}`}
-                    onClick={voiceState === 'listening' ? stopRecording : startRecording}
-                    title={voiceState === 'listening' ? "Click to stop recording" : "Click to speak query"}
+                    className={`copilot-btn-mic ${isRecording ? 'recording' : ''}`}
+                    onClick={isRecording ? stopRecording : startRecording}
+                    title={isRecording ? "Click to stop recording" : "Click to speak query"}
                     type="button"
                     style={{
                       border: 'none',
@@ -479,13 +614,14 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                       alignItems: 'center',
                       justifyContent: 'center',
                       padding: '8px',
-                      color: voiceState === 'listening' ? '#ef4444' : 'var(--text-secondary)',
+                      color: isRecording ? '#ef4444' : 'var(--text-secondary)',
                       transition: 'all var(--transition-fast)',
                       borderRadius: '50%',
-                      backgroundColor: voiceState === 'listening' ? 'var(--bg-tertiary)' : 'transparent',
+                      backgroundColor: isRecording ? 'var(--bg-tertiary)' : 'transparent',
+                      marginRight: '6px'
                     }}
                   >
-                    {voiceState === 'listening' ? (
+                    {isRecording ? (
                       <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 15, height: 15, animation: 'pulse 1s infinite' }}>
                         <circle cx="12" cy="12" r="10" fill="#ef4444" opacity="0.3"></circle>
                         <circle cx="12" cy="12" r="4" fill="#ef4444"></circle>
@@ -503,16 +639,22 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
                   <input
                     type="text"
                     className="copilot-textbox"
-                    placeholder={voiceState === 'listening' ? "Listening speech..." : "Ask Copilot to analyze or navigate..."}
+                    placeholder={isRecording ? "Listening speech..." : "Ask Copilot to analyze or navigate..."}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    disabled={isTyping || voiceState === 'listening'}
+                    disabled={isTyping || isRecording}
                   />
+
+                  {/* Status Indicator inside text field when transcribing/thinking */}
+                  {voiceState !== 'idle' && voiceState !== 'listening' && (
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 'bold', textTransform: 'uppercase', marginRight: '8px', whiteSpace: 'nowrap' }}>{voiceState}...</span>
+                  )}
+
                   <button
                     className="copilot-btn-send"
                     onClick={() => handleSend(input)}
-                    disabled={!input.trim() || isTyping || voiceState === 'listening'}
+                    disabled={!input.trim() || isTyping || isRecording}
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
                       <line x1="22" y1="2" x2="11" y2="13"></line>

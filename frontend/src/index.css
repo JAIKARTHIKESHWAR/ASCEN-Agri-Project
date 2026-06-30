@@ -1958,3 +1958,13 @@ h1, h2, h3, h4, h5, h6 {
     transform: scale(1);
   }
 }
+
+@keyframes bounce {
+  from {
+    transform: scaleY(0.3);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+

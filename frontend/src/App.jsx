@@ -456,6 +456,15 @@ function App() {
 
   const handleResetFilters = () => {
     setFilters(INITIAL_FILTERS);
+    setAnalyticsContext({
+      primaryYear: '',
+      comparisonYear: '',
+      compareMode: 'none',
+      primaryQuarter: '',
+      comparisonQuarter: '',
+      primaryMonth: '',
+      comparisonMonth: ''
+    });
   };
 
   const activeFiltersCount = useMemo(() => {
@@ -520,11 +529,11 @@ function App() {
     if (files.length > 1) {
       const failMsg = results.failed.length > 0 ? `, ${results.failed.length} failed` : '';
       showToast(
-        `Bulk upload complete: ${results.imported.toLocaleString('en-IN')} rows imported${failMsg}`,
+        `All dataset files uploaded successfully! Loaded ${results.imported.toLocaleString('en-IN')} records${failMsg}.`,
         results.failed.length > 0 ? 'error' : 'success'
       );
     } else if (results.failed.length === 0) {
-      showToast(`Got it! Loaded ${results.imported.toLocaleString('en-IN')} records from ${files[0].name}.`, 'success');
+      showToast(`Dataset file "${files[0].name}" uploaded successfully! Loaded ${results.imported.toLocaleString('en-IN')} records.`, 'success');
     }
 
     // Reload dataset list and switch to the first newly uploaded FY
@@ -602,7 +611,28 @@ function App() {
       const res = await fetch('/api/data/reset', { method: 'POST' });
       if (res.ok) {
         showToast("Done! All active metrics have been soft-reset to default zero.", 'success');
-        await reloadDatasetFromBackend('Database Empty (Reset)');
+        setFilters(INITIAL_FILTERS);
+        setAnalyticsContext({
+          primaryYear: '',
+          comparisonYear: '',
+          compareMode: 'none',
+          primaryQuarter: '',
+          comparisonQuarter: '',
+          primaryMonth: '',
+          comparisonMonth: ''
+        });
+        setActiveDatasetId('all');
+
+        // Refetch datasets list to clear stale dropdowns
+        const dsRes = await fetch('/api/data/datasets');
+        if (dsRes.ok) {
+          const dsList = await dsRes.json();
+          setDatasetsList(dsList);
+        } else {
+          setDatasetsList([]);
+        }
+
+        await reloadDatasetFromBackend('all');
       } else {
         const errorData = await res.json();
         showToast("Reset failed: " + (errorData.error || "Unknown error"), 'error');

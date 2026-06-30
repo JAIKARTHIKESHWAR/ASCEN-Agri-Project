@@ -76,7 +76,8 @@ export const TABLE_SCHEMAS = {
   `,
   sales_data_raw: `
     CREATE TABLE IF NOT EXISTS sales_data_raw (
-      invoice_id TEXT PRIMARY KEY,
+      id BIGSERIAL PRIMARY KEY,
+      invoice_id TEXT NOT NULL,
       invoice_date DATE NOT NULL,
       billing_type TEXT NOT NULL,
       customer_id TEXT NOT NULL,

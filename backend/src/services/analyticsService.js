@@ -13,13 +13,14 @@ export async function getSummaryData(whereClause, sqlParams) {
   // KPI Cards
   const kpiSql = `
     SELECT
-      COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
-      ABS(COALESCE(SUM(CASE WHEN sd.billing_type='RE' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
-      ABS(COALESCE(SUM(CASE WHEN sd.billing_type='S1' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
-      COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.cogm ELSE 0 END), 0) AS total_cogm,
+      COALESCE(SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
+      ABS(COALESCE(SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
+      ABS(COALESCE(SUM(CASE WHEN bt.classification='CANCELLED' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
+      COALESCE(SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.cogm ELSE 0 END), 0) AS total_cogm,
       COUNT(*) AS total_rows,
       MAX(sd.invoice_date) AS last_updated
     FROM sales_data sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
     ${whereClause}
   `;
   const kpiRes = await originalDbGet(kpiSql, sqlParams) || {};
@@ -162,11 +163,12 @@ export async function getSummaryData(whereClause, sqlParams) {
 export async function getSalesKPIs(whereClause, sqlParams) {
   const kpiSql = `
     SELECT
-      COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
-      ABS(COALESCE(SUM(CASE WHEN sd.billing_type='RE' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
-      ABS(COALESCE(SUM(CASE WHEN sd.billing_type='S1' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
-      COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.cogm ELSE 0 END), 0) AS total_cogm
+      COALESCE(SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
+      ABS(COALESCE(SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value,
+      ABS(COALESCE(SUM(CASE WHEN bt.classification='CANCELLED' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS cancelled_value,
+      COALESCE(SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.cogm ELSE 0 END), 0) AS total_cogm
     FROM sales_data sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
     ${whereClause}
   `;
   const kpis = await originalDbGet(kpiSql, sqlParams) || {};
@@ -182,9 +184,10 @@ export async function getSalesKPIs(whereClause, sqlParams) {
 export async function getReturnsKPIs(whereClause, sqlParams) {
   const kpiSql = `
     SELECT
-      COALESCE(SUM(CASE WHEN sd.billing_type='F2' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
-      ABS(COALESCE(SUM(CASE WHEN sd.billing_type='RE' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value
+      COALESCE(SUM(CASE WHEN bt.classification='GROSS_SALE' THEN sd.sales_amount_inr ELSE 0 END), 0) AS gross_sales,
+      ABS(COALESCE(SUM(CASE WHEN bt.classification='RETURN' THEN sd.sales_amount_inr ELSE 0 END), 0)) AS returns_value
     FROM sales_data sd
+    JOIN billing_types bt ON sd.billing_type = bt.billing_type
     ${whereClause}
   `;
   const kpis = await originalDbGet(kpiSql, sqlParams) || {};

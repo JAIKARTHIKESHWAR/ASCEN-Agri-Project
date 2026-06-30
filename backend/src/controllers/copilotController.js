@@ -120,3 +120,53 @@ export async function getSessionHistory(req, res) {
     res.status(500).json({ error: 'Failed to fetch session history', details: error.message });
   }
 }
+
+/**
+ * Generates speech using OpenAI TTS API and streams it back to the frontend
+ * POST /api/copilot/tts
+ */
+export async function handleTTS(req, res) {
+  const { text } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'Text content is required for TTS generation.' });
+  }
+
+  const openAIKey = process.env.OPENAI_API_KEY;
+  if (!openAIKey) {
+    console.error('OpenAI API key is missing. Cannot perform TTS.');
+    return res.status(500).json({ error: 'OpenAI TTS is not configured on the server.' });
+  }
+
+  try {
+    console.log('Generating TTS via OpenAI API...');
+    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: text,
+        voice: 'alloy',
+        response_format: 'mp3'
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('OpenAI TTS API returned error:', response.status, errText);
+      return res.status(response.status).json({ error: 'OpenAI TTS generation failed', details: errText });
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    res.send(buffer);
+  } catch (error) {
+    console.error('TTS generation exception:', error);
+    res.status(500).json({ error: 'Failed to generate speech', details: error.message });
+  }
+}
+

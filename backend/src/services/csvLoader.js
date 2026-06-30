@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
 import { dbRun, dbAll, dbGet, dbTransaction } from '../database.js';
 import { initializeDatabase } from '../scripts/initDb.js';
+import { logger } from '../logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -536,8 +537,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
           `INSERT INTO sales_data_raw (
             invoice_id, invoice_date, billing_type, customer_id, material_code,
             territory_id, qty, sales_unit, sales_amount_inr, cogm, season_code, fy_code, batch_id
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-          ON CONFLICT (invoice_id, batch_id) DO NOTHING`,
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [invoiceId, date, billingType, customerId, materialCode,
             territoryId, qty, salesUnit, salesAmountINR, cogm, seasonCode, fyCode, batchId]
         );
@@ -591,6 +591,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
   });
 
   console.log(`[Import] Batch ${batchId}: ${importedCount} imported, ${rejectedCount} rejected from ${originalFileName}`);
+  logger.info(`Imported ${importedCount} rows from batch ${batchId}`);
 
   return { batchId, rowsImported: importedCount, rowsRejected: rejectedCount };
 }

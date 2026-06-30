@@ -1,4 +1,4 @@
-import db, { dbRun, dbAll, dbGet } from '../database.js';
+import db, { dbRun, dbAll, dbGet, dbTransaction } from '../database.js';
 import { TABLE_SCHEMAS } from '../schema.js';
 
 /**
@@ -79,6 +79,46 @@ export async function initializeDatabase() {
   );
   const existingTables = new Set(existingTablesRows.map(r => r.name));
 
+  // Migration Check
+  try {
+    if (existingTables.has('sales_data_raw')) {
+      const hasIdCol = await dbGet(`
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name='sales_data_raw' AND column_name='id'
+      `);
+      if (!hasIdCol) {
+        console.log('Schema migration detected: Old sales_data_raw schema (missing id column). Recreating...');
+        
+        await dbTransaction(async () => {
+          // Drop dependent objects
+          await dbRun('DROP VIEW IF EXISTS sales_data CASCADE');
+          await dbRun('DROP TRIGGER IF EXISTS insert_sales_data_trigger ON sales_data');
+          
+          // Drop existing backup table if it exists
+          await dbRun('DROP TABLE IF EXISTS sales_data_raw_backup CASCADE');
+          
+          // Rename table to backup
+          await dbRun('ALTER TABLE sales_data_raw RENAME TO sales_data_raw_backup');
+          
+          // Recreate sales_data_raw
+          console.log('Recreating sales_data_raw with new schema...');
+          await dbRun(TABLE_SCHEMAS.sales_data_raw);
+          
+          // Migrate existing records
+          console.log('Migrating existing records from backup...');
+          await dbRun(`
+            INSERT INTO sales_data_raw (invoice_id, invoice_date, billing_type, customer_id, material_code, territory_id, qty, sales_unit, sales_amount_inr, cogm, season_code, fy_code, batch_id)
+            SELECT invoice_id, invoice_date, billing_type, customer_id, material_code, territory_id, qty, sales_unit, sales_amount_inr, cogm, season_code, fy_code, batch_id
+            FROM sales_data_raw_backup
+          `);
+          console.log('Migration completed successfully.');
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Schema migration check failed:', err.message);
+  }
+
   for (const [tableName, createSql] of Object.entries(TABLE_SCHEMAS)) {
     if (!existingTables.has(tableName)) {
       console.warn(`Table "${tableName}" missing — creating now...`);
@@ -86,20 +126,18 @@ export async function initializeDatabase() {
     }
   }
 
-  // ── Step 4: Add UNIQUE constraint on (invoice_id, batch_id) ───────────────
-  // This allows the same invoice_id from two different FY files without conflict.
+  // ── Step 4: Remove UNIQUE constraint on (invoice_id, batch_id) if it exists ──
   try {
     await dbRun('ALTER TABLE sales_data_raw DROP CONSTRAINT IF EXISTS uq_invoice_batch');
-    await dbRun('ALTER TABLE sales_data_raw ADD CONSTRAINT uq_invoice_batch UNIQUE (invoice_id, batch_id)');
-    console.log('Unique constraint (invoice_id, batch_id) ensured on sales_data_raw.');
+    console.log('Unique constraint uq_invoice_batch removed if it existed.');
   } catch (err) {
-    console.log('Unique constraint already exists or skipped:', err.message);
+    console.log('Failed to drop unique constraint:', err.message);
   }
 
   // ── Step 5: Create the sales_data VIEW (filters inactive batches) ─────────
   console.log('Creating "sales_data" view...');
   await dbRun(`
-    CREATE VIEW sales_data AS
+    CREATE OR REPLACE VIEW sales_data AS
     SELECT sd.*
     FROM sales_data_raw sd
     JOIN upload_batches ub ON sd.batch_id = ub.batch_id
@@ -118,7 +156,7 @@ export async function initializeDatabase() {
         NEW.invoice_id, NEW.invoice_date, NEW.billing_type, NEW.customer_id, NEW.material_code,
         NEW.territory_id, NEW.qty, NEW.sales_unit, NEW.sales_amount_inr, NEW.cogm,
         NEW.season_code, NEW.fy_code, NEW.batch_id
-      ) ON CONFLICT (invoice_id, batch_id) DO NOTHING;
+      );
       RETURN NEW;
     END;
     $$ LANGUAGE plpgsql;
@@ -140,6 +178,9 @@ export async function initializeDatabase() {
   await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_fy ON sales_data_raw(fy_code)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_batch_fy ON sales_data_raw(batch_id, fy_code)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_invoice_date ON sales_data_raw(invoice_date)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_raw_invoice ON sales_data_raw(invoice_id)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_raw_batch ON sales_data_raw(batch_id)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_sales_raw_invoice_batch ON sales_data_raw(invoice_id, batch_id)');
 }
 
 /**
