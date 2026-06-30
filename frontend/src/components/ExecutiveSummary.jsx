@@ -16,12 +16,12 @@ const divisionModes = [
   { key: 'sunburst', label: 'Sunburst' }
 ];
 
-function ExecutiveSummary({ 
-  filteredData, 
-  kpis, 
-  setActiveTab, 
-  chartPreferences = {}, 
-  setChartPreferences = () => {},
+function ExecutiveSummary({
+  filteredData,
+  kpis,
+  setActiveTab,
+  chartPreferences = {},
+  setChartPreferences = () => { },
   analyticsContext,
   comparisonMetrics
 }) {
@@ -109,7 +109,7 @@ function ExecutiveSummary({
     const bt = (item.billingType || '').toUpperCase();
     const isGross = bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2';
     const isDeduction = bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1';
-    
+
     if (isGross) {
       stateMap[item.state] = (stateMap[item.state] || 0) + Math.abs(item.salesAmountINR || 0);
     } else if (isDeduction) {
@@ -136,13 +136,13 @@ function ExecutiveSummary({
 
   const divisionData = isComparisonMode && comparisonMetrics?.divisionContribution
     ? comparisonMetrics.divisionContribution.map(d => ({
-        ...d,
-        label: d.label === 'VG' ? 'Vegetables (VG)' : d.label === 'FC' ? 'Field Crops (FC)' : d.label
-      }))
+      ...d,
+      label: d.label === 'VG' ? 'Vegetables (VG)' : d.label === 'FC' ? 'Field Crops (FC)' : d.label
+    }))
     : Object.keys(divMap).map(key => ({
-        label: key === 'VG' ? 'Vegetables (VG)' : key === 'FC' ? 'Field Crops (FC)' : key,
-        value: divMap[key]
-      }));
+      label: key === 'VG' ? 'Vegetables (VG)' : key === 'FC' ? 'Field Crops (FC)' : key,
+      value: divMap[key]
+    }));
 
   // Calculate division totals for dynamic state contribution calculations
   const divTotalVG = divMap.VG || 0;
@@ -174,7 +174,7 @@ function ExecutiveSummary({
     const bt = (item.billingType || '').toUpperCase();
     const isGross = bt === 'F2' || bt === 'ZF2' || bt === 'ZIF2';
     const isDeduction = bt === 'RE' || bt === 'ZRE' || bt === 'ZIRE' || bt === 'S1' || bt === 'ZS1';
-    
+
     if (item.division === 'VG') {
       if (isGross) vgNet += Math.abs(item.salesAmountINR || 0);
       else if (isDeduction) vgNet -= Math.abs(item.salesAmountINR || 0);
@@ -212,32 +212,32 @@ function ExecutiveSummary({
   const topStatesBySales = isComparisonMode && comparisonMetrics?.topStates
     ? comparisonMetrics.topStates
     : Object.keys(stateGrossMap)
-        .map(name => ({ label: name, value: stateGrossMap[name] }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 10);
+      .map(name => ({ label: name, value: stateGrossMap[name] }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
 
   const topCropsBySales = isComparisonMode && comparisonMetrics?.topCrops
     ? comparisonMetrics.topCrops
     : Object.keys(cropGrossMap)
-        .map(name => ({ label: name, value: cropGrossMap[name] }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 10);
+      .map(name => ({ label: name, value: cropGrossMap[name] }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
 
   const topDealersBySales = isComparisonMode && comparisonMetrics?.topDealers
     ? comparisonMetrics.topDealers
     : Object.keys(dealerGrossMap)
-        .map(name => ({ label: name, value: dealerGrossMap[name] }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 10);
+      .map(name => ({ label: name, value: dealerGrossMap[name] }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
 
   const totalGrossSales = Object.values(stateGrossMap).reduce((sum, val) => sum + val, 0);
 
   const stateHeatmapData = isComparisonMode && comparisonMetrics?.topStates
     ? comparisonMetrics.topStates
     : Object.keys(stateGrossMap)
-        .map(name => ({ label: name, value: stateGrossMap[name], returns: stateReturnsMap[name] || 0 }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 8);
+      .map(name => ({ label: name, value: stateGrossMap[name], returns: stateReturnsMap[name] || 0 }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
 
   const topReturnStates = Object.keys(stateReturnsMap)
     .map(name => {
@@ -256,9 +256,9 @@ function ExecutiveSummary({
   const returnsTrendData = isComparisonMode && comparisonMetrics?.returnsByState
     ? comparisonMetrics.returnsByState
     : Object.keys(stateReturnsMap)
-        .map(name => ({ label: name, value: stateReturnsMap[name] }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
+      .map(name => ({ label: name, value: stateReturnsMap[name] }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
 
   const topState = topStatesBySales[0];
   const topCrop = topCropsBySales[0];
@@ -463,28 +463,28 @@ function ExecutiveSummary({
                 {comparisonMetrics && analyticsContext.compareMode !== 'none' && (
                   <span style={{ marginLeft: '12px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     <span style={{ color: 'var(--color-sales-gross)', marginRight: '4px' }}>●</span>
-                    {analyticsContext.primaryYear ? `FY 20${analyticsContext.primaryYear.substring(2,4)}-20${analyticsContext.primaryYear.substring(4,6)}` : 'Primary'}
+                    {analyticsContext.primaryYear ? `FY 20${analyticsContext.primaryYear.substring(2, 4)}-20${analyticsContext.primaryYear.substring(4, 6)}` : 'Primary'}
                     <span style={{ color: 'var(--text-muted)', marginLeft: '12px', marginRight: '4px' }}>■</span>
-                    {analyticsContext.comparisonYear ? `FY 20${analyticsContext.comparisonYear.substring(2,4)}-20${analyticsContext.comparisonYear.substring(4,6)}` : 'Comparison'}
+                    {analyticsContext.comparisonYear ? `FY 20${analyticsContext.comparisonYear.substring(2, 4)}-20${analyticsContext.comparisonYear.substring(4, 6)}` : 'Comparison'}
                   </span>
                 )}
               </p>
             </div>
-            
+
             {/* Chart Type Toggle Button Group */}
-            <div style={{ 
-              display: 'flex', 
-              gap: '6px', 
-              backgroundColor: 'var(--bg-tertiary)', 
-              padding: '4px', 
-              borderRadius: '999px', 
-              border: '1px solid var(--border-color)' 
+            <div style={{
+              display: 'flex',
+              gap: '6px',
+              backgroundColor: 'var(--bg-tertiary)',
+              padding: '4px',
+              borderRadius: '999px',
+              border: '1px solid var(--border-color)'
             }}>
               {trendModes.map((mode) => (
-                <button 
+                <button
                   key={mode.key}
-                  style={{ 
-                    padding: '4px 12px', 
+                  style={{
+                    padding: '4px 12px',
                     fontSize: '0.75rem',
                     backgroundColor: chartType === mode.key ? 'var(--text-primary)' : 'transparent',
                     color: chartType === mode.key ? 'var(--bg-primary)' : 'var(--text-secondary)',
@@ -505,9 +505,9 @@ function ExecutiveSummary({
           <div className="chart-container">
             {activeSalesChart === 'line' && <LineChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
             {activeSalesChart === 'bar' && <BarChart data={chartData} yKey={mainValKey} comparisonKey={compKey} barColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'area' && <AreaChart data={chartData} yKey={mainValKey} comparisonKey={compKey} fillColor="var(--color-sales-gross)" />}
-            {activeSalesChart === 'heatmap' && <HeatmapChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
-            {activeSalesChart === 'waterfall' && <WaterfallChart data={chartData} yKey={mainValKey} comparisonKey={compKey} />}
+            {activeSalesChart === 'area' && <AreaChart data={chartData} yKey={mainValKey} fillColor="var(--color-sales-gross)" />}
+            {activeSalesChart === 'heatmap' && <HeatmapChart data={chartData} />}
+            {activeSalesChart === 'waterfall' && <WaterfallChart data={chartData} />}
           </div>
         </div>
 
@@ -519,33 +519,33 @@ function ExecutiveSummary({
               <p className="card-subtitle">Revenue split by division</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ 
-                display: 'flex', 
-                gap: '6px', 
-                backgroundColor: 'var(--bg-tertiary)', 
-                padding: '4px', 
-                borderRadius: '999px', 
-                border: '1px solid var(--border-color)' 
+              <div style={{
+                display: 'flex',
+                gap: '6px',
+                backgroundColor: 'var(--bg-tertiary)',
+                padding: '4px',
+                borderRadius: '999px',
+                border: '1px solid var(--border-color)'
               }}>
-              {divisionModes.map((mode) => (
-                <button
-                  key={mode.key}
-                  style={{
-                    padding: '4px 12px',
-                    fontSize: '0.75rem',
-                    backgroundColor: divisionView === mode.key ? 'var(--text-primary)' : 'transparent',
-                    color: divisionView === mode.key ? 'var(--bg-primary)' : 'var(--text-secondary)',
-                    border: 'none',
-                    borderRadius: '999px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all var(--transition-fast)'
-                  }}
-                  onClick={() => setDivisionView(mode.key)}
-                >
-                  {mode.label}
-                </button>
-              ))}
+                {divisionModes.map((mode) => (
+                  <button
+                    key={mode.key}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.75rem',
+                      backgroundColor: divisionView === mode.key ? 'var(--text-primary)' : 'transparent',
+                      color: divisionView === mode.key ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                      border: 'none',
+                      borderRadius: '999px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                    onClick={() => setDivisionView(mode.key)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>

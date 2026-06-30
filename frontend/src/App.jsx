@@ -132,7 +132,7 @@ function App() {
       'returns-analysis': 'returns',
       'transactions': 'transactions'
     };
-    
+
     const targetTab = data.navigateTo ? (tabMap[data.navigateTo.toLowerCase()] || data.navigateTo.toLowerCase()) : null;
     if (targetTab) {
       setActiveTab(targetTab);
@@ -155,8 +155,8 @@ function App() {
       if (incoming.financialYear) {
         const matchedFY = datasetsList.find(
           d => d.batch_id === incoming.financialYear ||
-               d.fyCode === incoming.financialYear ||
-               d.fy_code === incoming.financialYear
+            d.fyCode === incoming.financialYear ||
+            d.fy_code === incoming.financialYear
         );
         if (matchedFY) {
           setActiveDatasetId(matchedFY.batch_id.toString());
@@ -229,13 +229,13 @@ function App() {
       const cc = data.comparisonContext;
       setAnalyticsContext(prev => ({
         ...prev,
-        compareMode:       cc.compareMode || 'none',
-        primaryYear:       cc.primaryYear   || prev.primaryYear,
-        primaryQuarter:    cc.primaryQuarter   ? String(cc.primaryQuarter)   : '',
-        primaryMonth:      cc.primaryMonth     ? String(cc.primaryMonth)     : '',
-        comparisonYear:    cc.comparisonYear || prev.comparisonYear,
+        compareMode: cc.compareMode || 'none',
+        primaryYear: cc.primaryYear || prev.primaryYear,
+        primaryQuarter: cc.primaryQuarter ? String(cc.primaryQuarter) : '',
+        primaryMonth: cc.primaryMonth ? String(cc.primaryMonth) : '',
+        comparisonYear: cc.comparisonYear || prev.comparisonYear,
         comparisonQuarter: cc.comparisonQuarter ? String(cc.comparisonQuarter) : '',
-        comparisonMonth:   cc.comparisonMonth   ? String(cc.comparisonMonth)   : ''
+        comparisonMonth: cc.comparisonMonth ? String(cc.comparisonMonth) : ''
       }));
     }
   };
@@ -249,7 +249,7 @@ function App() {
         if (element) {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
           element.classList.add('section-highlight');
-          
+
           const clearTimer = setTimeout(() => {
             element.classList.remove('section-highlight');
             setActiveSection(null);
@@ -276,7 +276,7 @@ function App() {
     async function loadDatasetsAndActive() {
       try {
         let savedId = localStorage.getItem('activeDatasetId') || '';
-        
+
         // Parallelize datasets list and transactions fetching on mount
         const [dsRes, transRes] = await Promise.all([
           fetch('/api/data/datasets'),
@@ -334,19 +334,19 @@ function App() {
         setComparisonMetrics(null);
         return;
       }
-      
-      const { 
-        primaryYear, 
-        comparisonYear, 
-        primaryQuarter, 
-        comparisonQuarter, 
-        primaryMonth, 
-        comparisonMonth, 
-        compareMode 
+
+      const {
+        primaryYear,
+        comparisonYear,
+        primaryQuarter,
+        comparisonQuarter,
+        primaryMonth,
+        comparisonMonth,
+        compareMode
       } = analyticsContext;
-      
+
       if (!primaryYear || !comparisonYear) return;
-      
+
       try {
         const queryParams = new URLSearchParams({
           datasetId: activeDatasetId,
@@ -544,7 +544,7 @@ function App() {
     try {
       const { primaryYear, comparisonYear, compareMode } = analyticsContext;
       const compActive = compareMode !== 'none' && primaryYear && comparisonYear;
-      
+
       const compQueryParams = new URLSearchParams({
         primaryYear,
         comparisonYear,
@@ -582,7 +582,7 @@ function App() {
           cogm: item.cogm
         }));
         setDataset(mappedItems);
-        
+
         const matched = dsList.find(d => d.batch_id.toString() === datasetId.toString());
         setDatasetName(matched ? matched.label : `Financial Year ${datasetId}`);
         setFilters(INITIAL_FILTERS);
@@ -651,8 +651,8 @@ function App() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {/* Reset Dataset to Default */}
-              <button 
-                className="btn-reset" 
+              <button
+                className="btn-reset"
                 style={{ padding: '6px 12px', fontSize: '0.75rem', alignSelf: 'center', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                 onClick={handleResetToDefault}
               >
@@ -668,27 +668,27 @@ function App() {
                 accept=".csv,.xlsx,.xls"
                 multiple
               />
-              <button 
-                className="btn-export" 
+              <button
+                className="btn-export"
                 style={{ padding: '6px 12px', fontSize: '0.75rem', gap: '4px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
                 onClick={() => fileInputRef.current.click()}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
                 </svg>
                 Upload CSV / Excel
               </button>
 
               {/* Toggle Filters */}
-              <button 
-                className="btn-export" 
-                style={{ 
-                  padding: '6px 12px', 
-                  fontSize: '0.75rem', 
-                  gap: '4px', 
-                  backgroundColor: showFilters ? 'var(--text-primary)' : 'var(--bg-primary)', 
-                  color: showFilters ? 'var(--bg-primary)' : 'var(--text-primary)', 
-                  borderColor: showFilters ? 'var(--text-primary)' : 'var(--border-color)' 
+              <button
+                className="btn-export"
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '0.75rem',
+                  gap: '4px',
+                  backgroundColor: showFilters ? 'var(--text-primary)' : 'var(--bg-primary)',
+                  color: showFilters ? 'var(--bg-primary)' : 'var(--text-primary)',
+                  borderColor: showFilters ? 'var(--text-primary)' : 'var(--border-color)'
                 }}
                 onClick={() => setShowFilters(prev => !prev)}
               >
@@ -699,8 +699,8 @@ function App() {
               </button>
 
               {/* PDF Report Export Trigger */}
-              <button 
-                className="btn-export" 
+              <button
+                className="btn-export"
                 style={{ padding: '6px 12px', fontSize: '0.75rem', gap: '4px' }}
                 onClick={() => window.print()}
               >
@@ -794,9 +794,9 @@ function App() {
             kpis={kpis}
           />
         )}
-        <CopilotWidget 
-          currentFilters={{ ...filters, datasetId: activeDatasetId }} 
-          onAIResponse={handleCopilotResponse} 
+        <CopilotWidget
+          currentFilters={{ ...filters, datasetId: activeDatasetId }}
+          onAIResponse={handleCopilotResponse}
         />
 
         {/* Soft Reset Confirmation Destructive Dialog Modal */}
@@ -831,7 +831,7 @@ function App() {
                 <span style={{ fontSize: '1.5rem' }}>⚠️</span>
                 <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.2rem', fontWeight: '700' }}>Reset Sales Data</h3>
               </div>
-              
+
               <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                 This action will reset all dashboard statistics and reports to zero.
                 Uploaded sales files will be preserved in database logs and can be restored later.
@@ -841,7 +841,7 @@ function App() {
                 <label style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Type <span style={{ color: '#ef4444', fontWeight: '800' }}>RESET</span> to continue:
                 </label>
-                <input 
+                <input
                   type="text"
                   value={resetConfirmText}
                   onChange={(e) => setResetConfirmText(e.target.value)}
@@ -862,7 +862,7 @@ function App() {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '6px' }}>
-                <button 
+                <button
                   onClick={() => {
                     setShowResetConfirm(false);
                     setResetConfirmText('');
@@ -881,7 +881,7 @@ function App() {
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   disabled={resetConfirmText !== 'RESET'}
                   onClick={async () => {
                     setShowResetConfirm(false);
@@ -947,7 +947,7 @@ function App() {
                 {toast.type === 'success' ? '⚡' : toast.type === 'error' ? '🚫' : '⏳'}
               </span>
               <div style={{ flex: 1, lineHeight: '1.4' }}>{toast.message}</div>
-              <button 
+              <button
                 onClick={() => setToast(null)}
                 style={{
                   background: 'none',
