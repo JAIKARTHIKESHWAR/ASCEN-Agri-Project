@@ -42,12 +42,55 @@ function injectMissingFilters(sql, mergedFilters) {
   const extraConditions = [];
   let extraJoins = '';
 
+  // 1. If the query targets dataset_aggregates, only inject fy_code and do NOT attempt raw joins
+  if (sqlLower.includes('dataset_aggregates')) {
+    const targetFy = mergedFilters.fy || (mergedFilters.datasetId && mergedFilters.datasetId !== 'all' ? mergedFilters.datasetId : null);
+    if (targetFy && !sqlLower.includes('fy_code')) {
+      extraConditions.push(`fy_code = '${targetFy.replace(/'/g, "''")}'`);
+    }
+    if (extraConditions.length > 0) {
+      const condStr = extraConditions.join(' AND ');
+      const whereMatch = injected.match(/\bWHERE\b/i);
+      if (whereMatch) {
+        const whereIndex = injected.indexOf(whereMatch[0]) + whereMatch[0].length;
+        injected = injected.slice(0, whereIndex) + ' ' + condStr + ' AND' + injected.slice(whereIndex);
+      } else {
+        const endMatch = injected.match(/\b(GROUP BY|ORDER BY|LIMIT)\b/i);
+        if (endMatch) {
+          const endIndex = injected.indexOf(endMatch[0]);
+          injected = injected.slice(0, endIndex) + ' WHERE ' + condStr + ' ' + injected.slice(endIndex);
+        } else {
+          injected += ' WHERE ' + condStr;
+        }
+      }
+    }
+    return injected;
+  }
+
+  // 2. Resolve target table or alias dynamically for raw queries (prevents "missing FROM-clause entry for table 'sd'")
+  let tableRef = 'sd';
+  const fromMatch = sql.match(/\bFROM\s+([a-zA-Z0-9_]+)(?:\s+([a-zA-Z0-9_]+))?\b/i);
+  if (fromMatch) {
+    const tableName = fromMatch[1];
+    const possibleAlias = fromMatch[2];
+    if (possibleAlias && !['join', 'where', 'group', 'order', 'limit'].includes(possibleAlias.toLowerCase())) {
+      tableRef = possibleAlias;
+    } else {
+      tableRef = tableName;
+    }
+  }
+
+  // Dynamic fy_code filter injection
+  const targetFy = mergedFilters.fy || (mergedFilters.datasetId && mergedFilters.datasetId !== 'all' ? mergedFilters.datasetId : null);
+  if (targetFy && !sqlLower.includes('fy_code')) {
+    extraConditions.push(`${tableRef}.fy_code = '${targetFy.replace(/'/g, "''")}'`);
+  }
+
   // Division filter — requires JOIN materials
   if (mergedFilters.division && !sqlLower.includes('division')) {
     const hasMaterialsJoin = /join\s+materials\s+/i.test(sql);
     if (!hasMaterialsJoin) {
-      // Find the FROM clause to append the JOIN
-      extraJoins += ` JOIN materials m ON sd.material_code = m.material_code`;
+      extraJoins += ` JOIN materials m ON ${tableRef}.material_code = m.material_code`;
     }
     extraConditions.push(`m.division = '${mergedFilters.division.replace(/'/g, "''")}'`);
   }
@@ -56,7 +99,7 @@ function injectMissingFilters(sql, mergedFilters) {
   if (mergedFilters.state && !sqlLower.includes('state')) {
     const hasTerritoriesJoin = /join\s+territories\s+/i.test(sql);
     if (!hasTerritoriesJoin) {
-      extraJoins += ` JOIN territories t ON sd.territory_id = t.territory_id`;
+      extraJoins += ` JOIN territories t ON ${tableRef}.territory_id = t.territory_id`;
     }
     extraConditions.push(`t.state ILIKE '${mergedFilters.state.replace(/'/g, "''")}' `);
   }
@@ -65,7 +108,7 @@ function injectMissingFilters(sql, mergedFilters) {
   if (mergedFilters.crop && !sqlLower.includes('crop')) {
     const hasMaterialsJoin = /join\s+materials\s+/i.test(sql) || extraJoins.includes('materials');
     if (!hasMaterialsJoin) {
-      extraJoins += ` JOIN materials m ON sd.material_code = m.material_code`;
+      extraJoins += ` JOIN materials m ON ${tableRef}.material_code = m.material_code`;
     }
     extraConditions.push(`m.crop ILIKE '${mergedFilters.crop.replace(/'/g, "''")}' `);
   }
@@ -74,7 +117,7 @@ function injectMissingFilters(sql, mergedFilters) {
   if (mergedFilters.distributionChannel && !sqlLower.includes('dist_channel') && !sqlLower.includes('distribution_channel')) {
     const hasCustomersJoin = /join\s+customers\s+/i.test(sql);
     if (!hasCustomersJoin) {
-      extraJoins += ` JOIN customers c ON sd.customer_id = c.customer_id`;
+      extraJoins += ` JOIN customers c ON ${tableRef}.customer_id = c.customer_id`;
     }
     extraConditions.push(`c.dist_channel ILIKE '${mergedFilters.distributionChannel.replace(/'/g, "''")}' `);
   }
@@ -88,7 +131,6 @@ function injectMissingFilters(sql, mergedFilters) {
       const whereIndex = injected.indexOf(whereMatch[0]);
       injected = injected.slice(0, whereIndex) + extraJoins + ' ' + injected.slice(whereIndex);
     } else {
-      // No WHERE clause — append JOINs before GROUP BY or ORDER BY or end
       const endMatch = injected.match(/\b(GROUP BY|ORDER BY|LIMIT)\b/i);
       if (endMatch) {
         const endIndex = injected.indexOf(endMatch[0]);
@@ -470,9 +512,22 @@ export async function processQuestion({ question, sessionId, filters }) {
   console.log('[Copilot] Memory Filters:', sessionContext.memory ? sessionContext.memory.lastFilters : null);
   console.log('[Copilot] Effective Filters:', activeFiltersForQuery);
 
-  // 6. Invoke LLM Translator
-  console.log(`Translating question statefully: "${resolvedQuestion}" with context filters:`, activeFiltersForQuery);
-  const queryPlan = await translateQuestionToPlan(resolvedQuestion, activeFiltersForQuery, history);
+  // 6. Invoke LLM Translator (exclude datasetId to prevent SQL translation errors)
+  const filtersForLLM = { ...activeFiltersForQuery };
+  delete filtersForLLM.datasetId;
+  if (activeFiltersForQuery.datasetId && activeFiltersForQuery.datasetId !== 'all') {
+    filtersForLLM.financialYear = activeFiltersForQuery.datasetId;
+  }
+  
+  // Clean nulls/undefineds
+  Object.keys(filtersForLLM).forEach(key => {
+    if (filtersForLLM[key] === null || filtersForLLM[key] === undefined) {
+      delete filtersForLLM[key];
+    }
+  });
+
+  console.log(`Translating question statefully: "${resolvedQuestion}" with context filters for LLM:`, filtersForLLM);
+  const queryPlan = await translateQuestionToPlan(resolvedQuestion, filtersForLLM, history);
   console.log("AI Query Plan:", queryPlan);
 
   // 7. Verify Out of Scope
@@ -548,18 +603,42 @@ export async function processQuestion({ question, sessionId, filters }) {
     return responsePayload;
   }
 
-  // 9. Deterministic filter injection — ensure SQL matches dashboard scope
-  queryPlan.sql = injectMissingFilters(queryPlan.sql, mergedFilters);
-
-  // 10. Execute SQL Query
-  console.log("Executing SQL:", queryPlan.sql);
+  // 9. Deterministic filter injection & 10. Execute SQL Query
   const queryStartTime = Date.now();
   let resultRows = [];
   let queryError = null;
 
   try {
-    resultRows = await executeQueryPlan(null, queryPlan, datasetId);
-    console.log(`Query completed successfully, returned ${resultRows.length} records.`);
+    if (queryPlan.queries && Array.isArray(queryPlan.queries) && queryPlan.queries.length > 0) {
+      console.log(`[Copilot] Executing multi-query plan (${queryPlan.queries.length} sub-queries)...`);
+      const multiResults = [];
+      for (const subQuery of queryPlan.queries) {
+        let subSql = subQuery.sql;
+        subSql = injectMissingFilters(subSql, mergedFilters);
+        
+        console.log(`[Copilot] Executing sub-query "${subQuery.description}":`, subSql);
+        const subPlan = { ...queryPlan, sql: subSql };
+        const rows = await executeQueryPlan(null, subPlan, datasetId);
+        
+        multiResults.push({
+          description: subQuery.description,
+          sql: subSql,
+          rows: rows
+        });
+      }
+      
+      resultRows = {
+        isMultiQuery: true,
+        results: multiResults
+      };
+      console.log(`[Copilot] All sub-queries completed successfully.`);
+    } else {
+      // Single query execution
+      queryPlan.sql = injectMissingFilters(queryPlan.sql, mergedFilters);
+      console.log("Executing SQL:", queryPlan.sql);
+      resultRows = await executeQueryPlan(null, queryPlan, datasetId);
+      console.log(`Query completed successfully, returned ${resultRows.length} records.`);
+    }
   } catch (e) {
     console.warn('SQL query execution failed, attempting auto-repair...', e.message);
     try {
@@ -720,28 +799,33 @@ export async function processQuestion({ question, sessionId, filters }) {
   const planNav = queryPlan.navigation;
   
   // Rule-based deterministic navigation overrides
-  const NAV_RULES = [
-    {
-      keywords: ['crop', 'product', 'variety', 'top crop', 'revenue crop', 'material'],
-      navigateTo: 'product',
-      section: 'crops-revenue'
-    },
-    {
-      keywords: ['state', 'territory', 'region', 'geography', 'place', 'location', 'area'],
-      navigateTo: 'geography',
-      section: 'top-states'
-    },
-    {
-      keywords: ['return', 'refund', 'returned'],
-      navigateTo: 'returns',
-      section: 'returns-summary'
-    },
-    {
-      keywords: ['invoice', 'transaction', 'packet', 'batch', 'plant', 'expiry', 'sales order', 'created by', 'detail', 'list'],
-      navigateTo: 'transactions',
-      section: 'transaction-drilldown'
-    }
-  ];
+    const NAV_RULES = [
+      {
+        keywords: ['division', 'divisional', 'vg', 'fc', 'cm', 'vegetables', 'field crops'],
+        navigateTo: 'sales',
+        section: 'division-contribution'
+      },
+      {
+        keywords: ['crop', 'product', 'variety', 'top crop', 'revenue crop', 'material'],
+        navigateTo: 'product',
+        section: 'crops-revenue'
+      },
+      {
+        keywords: ['state', 'territory', 'region', 'geography', 'place', 'location', 'area'],
+        navigateTo: 'geography',
+        section: 'top-states'
+      },
+      {
+        keywords: ['return', 'refund', 'returned'],
+        navigateTo: 'returns',
+        section: 'returns-summary'
+      },
+      {
+        keywords: ['invoice', 'transaction', 'packet', 'batch', 'plant', 'expiry', 'sales order', 'created by', 'detail', 'list'],
+        navigateTo: 'transactions',
+        section: 'transaction-drilldown'
+      }
+    ];
 
   const queryLower = question.toLowerCase();
   let matchedRule = null;

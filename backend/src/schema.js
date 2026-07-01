@@ -8,7 +8,13 @@ export const TABLE_SCHEMAS = {
       rows_imported INTEGER,
       rows_rejected INTEGER,
       file_hash TEXT UNIQUE,
-      is_active BOOLEAN DEFAULT TRUE
+      is_active BOOLEAN DEFAULT TRUE,
+      fy_code TEXT,
+      min_date DATE,
+      max_date DATE,
+      record_count INTEGER,
+      deleted_at TIMESTAMPTZ,
+      schema_columns JSONB
     );
   `,
   import_rejected_rows: `
@@ -84,7 +90,7 @@ export const TABLE_SCHEMAS = {
       customer_id TEXT NOT NULL,
       material_code TEXT NOT NULL,
       territory_id INTEGER NOT NULL,
-      qty INTEGER NOT NULL,
+      qty NUMERIC(15, 4) NOT NULL,
       sales_unit TEXT NOT NULL,
       sales_amount_inr NUMERIC(15, 2) NOT NULL,
       cogm NUMERIC(15, 2) NOT NULL,
@@ -190,6 +196,24 @@ export const TABLE_SCHEMAS = {
       execution_status VARCHAR(20) DEFAULT 'success' CHECK (execution_status IN ('success', 'failed')),
       execution_time_ms INTEGER,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `,
+  dataset_aggregates: `
+    CREATE TABLE IF NOT EXISTS dataset_aggregates (
+      id SERIAL PRIMARY KEY,
+      batch_id INTEGER NOT NULL,
+      fy_code TEXT NOT NULL,
+      dimension_type TEXT NOT NULL,
+      dimension_value TEXT,
+      gross_sales NUMERIC DEFAULT 0,
+      returns_value NUMERIC DEFAULT 0,
+      cancelled_value NUMERIC DEFAULT 0,
+      net_external_sales NUMERIC DEFAULT 0,
+      total_cogm NUMERIC DEFAULT 0,
+      transaction_count INTEGER DEFAULT 0,
+      computed_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (batch_id, dimension_type, dimension_value),
+      FOREIGN KEY (batch_id) REFERENCES upload_batches(batch_id) ON DELETE CASCADE
     );
   `
 };

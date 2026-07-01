@@ -1,5 +1,6 @@
 import db, { dbRun, dbAll, dbGet, dbTransaction } from '../database.js';
 import { TABLE_SCHEMAS } from '../schema.js';
+import { computeAndStoreAggregates } from '../services/aggregateService.js';
 
 /**
  * Ensures all tables exist in PostgreSQL. If any table is missing/deleted, it gets recreated.
@@ -53,6 +54,7 @@ export async function initializeDatabase() {
     await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS max_date DATE');
     await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS record_count INTEGER');
     await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ');
+    await dbRun('ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS schema_columns JSONB');
     
     // Drop the old unique constraint on file_hash if it exists —
     // duplicate prevention now uses deleted_at IS NULL scoping, not a DB-level unique index.
@@ -182,6 +184,47 @@ export async function initializeDatabase() {
     console.log('Failed to drop unique constraint:', err.message);
   }
 
+  // ── Step 4b: Deduplicate existing batches & rows, then apply uq_invoice_line_per_batch ──
+  try {
+    console.log('Cleaning up duplicate batches from database...');
+    const duplicateBatches = await dbAll(`
+      SELECT batch_id, fy_code, file_name FROM upload_batches ub1
+      WHERE EXISTS (
+        SELECT 1 FROM upload_batches ub2
+        WHERE ub2.fy_code = ub1.fy_code AND ub2.uploaded_at > ub1.uploaded_at
+      )
+    `);
+
+    for (const b of duplicateBatches) {
+      console.log(`Deleting duplicate batch ${b.batch_id} (${b.fy_code} - ${b.file_name})...`);
+      try {
+        await dbRun('DELETE FROM dataset_aggregates WHERE batch_id = $1', [b.batch_id]);
+      } catch (_) {}
+      await dbRun('DELETE FROM import_rejected_rows WHERE batch_id = $1', [b.batch_id]);
+      await dbRun('DELETE FROM sales_data_raw WHERE batch_id = $1', [b.batch_id]);
+      await dbRun('DELETE FROM upload_batches WHERE batch_id = $1', [b.batch_id]);
+    }
+
+    const constraintExists = await dbGet(`
+      SELECT 1 FROM pg_constraint WHERE conname = 'uq_invoice_line_per_batch'
+    `);
+    if (!constraintExists) {
+      console.log('Deduplicating duplicate raw lines in sales_data_raw before applying constraint...');
+      await dbRun(`
+        DELETE FROM sales_data_raw a USING sales_data_raw b
+        WHERE a.id > b.id 
+          AND a.invoice_id = b.invoice_id 
+          AND COALESCE(a.line_item_no, '') = COALESCE(b.line_item_no, '') 
+          AND a.fy_code = b.fy_code
+      `);
+      console.log('Applying unique constraint uq_invoice_line_per_batch to sales_data_raw...');
+      await dbRun('ALTER TABLE sales_data_raw ADD CONSTRAINT uq_invoice_line_per_batch UNIQUE (invoice_id, line_item_no, fy_code)');
+      console.log('Unique constraint applied successfully.');
+    }
+  } catch (err) {
+    console.error('Failed duplicate batch/row cleanup and constraint migration:', err.message);
+  }
+
   // ── Step 5: Create the sales_data VIEW (filters inactive batches) ─────────
   console.log('Creating "sales_data" view...');
   await dbRun(`
@@ -265,6 +308,25 @@ export async function initializeDatabase() {
   await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_batch_no ON sales_data_raw(batch_no)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_plant ON sales_data_raw(plant)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_raw_customer_no ON sales_data_raw(customer_no)');
+
+  // ── Step 9: Startup Backfill for dataset_aggregates with per-batch try/catch ──
+  try {
+    const activeBatches = await dbAll("SELECT batch_id, fy_code FROM upload_batches WHERE is_active = true");
+    for (const b of activeBatches) {
+      try {
+        const aggCount = await dbGet("SELECT COUNT(*) as count FROM dataset_aggregates WHERE batch_id = $1", [b.batch_id]);
+        if (parseInt(aggCount.count || 0, 10) === 0) {
+          console.log(`[Aggregates] Startup backfill: Computing aggregates for batch ${b.batch_id} (${b.fy_code})...`);
+          await computeAndStoreAggregates(b.batch_id, b.fy_code);
+          console.log(`[Aggregates] Startup backfill: Batch ${b.batch_id} completed successfully.`);
+        }
+      } catch (batchErr) {
+        console.error(`[Aggregates] Startup backfill failed for batch ${b.batch_id} (${b.fy_code}):`, batchErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('[Aggregates] Failed to run startup aggregates backfill checklist:', err.message);
+  }
 }
 
 /**
@@ -283,8 +345,14 @@ async function seedMasterData() {
   const btCount = await dbAll("SELECT COUNT(*) as count FROM billing_types");
   if (parseInt(btCount[0].count, 10) === 0) {
     await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('F2', 'Standard Invoice', 'GROSS_SALE') ON CONFLICT (billing_type) DO NOTHING;");
+    await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('ZF2', 'Acsen Invoice', 'GROSS_SALE') ON CONFLICT (billing_type) DO NOTHING;");
+    await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('ZIF2', 'Inter-Company Invoice', 'GROSS_SALE') ON CONFLICT (billing_type) DO NOTHING;");
     await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('RE', 'Returns', 'RETURN') ON CONFLICT (billing_type) DO NOTHING;");
+    await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('ZRE', 'Acsen Returns', 'RETURN') ON CONFLICT (billing_type) DO NOTHING;");
+    await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('ZIRE', 'Inter-Company Returns', 'RETURN') ON CONFLICT (billing_type) DO NOTHING;");
     await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('S1', 'Cancelled Invoice', 'CANCELLED') ON CONFLICT (billing_type) DO NOTHING;");
+    await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('ZS1', 'Acsen Cancel Invoice', 'CANCELLED') ON CONFLICT (billing_type) DO NOTHING;");
     await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('IPT', 'Stock Transfer (IPT)', 'STOCK_TRANSFER') ON CONFLICT (billing_type) DO NOTHING;");
+    await dbRun("INSERT INTO billing_types (billing_type, billing_desc, classification) VALUES ('ZSTO', 'Stock Transfer (ZSTO)', 'STOCK_TRANSFER') ON CONFLICT (billing_type) DO NOTHING;");
   }
 }

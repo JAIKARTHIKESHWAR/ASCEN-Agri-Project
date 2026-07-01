@@ -7,7 +7,8 @@ import {
   getReturns, 
   getFiltersOptions, 
   getImportQuality,
-  getComparison
+  getComparison,
+  getAggregates
 } from '../controllers/dashboardController.js';
 import { 
   getTransactions, 
@@ -55,6 +56,9 @@ router.post('/data/reset', softResetData);
 
 // 9c. List all datasets metadata
 router.get('/data/datasets', getDatasets);
+
+// 9d. Pre-computed aggregates endpoint
+router.get('/aggregates', getAggregates);
 
 
 // 10. Filters options dropdowns cascading Endpoint

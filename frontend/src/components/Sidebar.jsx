@@ -195,9 +195,7 @@ export default function Sidebar({ activeTab, setActiveTab, isDark, setIsDark, is
             </button>
           </div>
         )}
-        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-          {isCollapsed ? 'v1.1' : 'POC Build v1.1.0'}
-        </div>
+         
       </div>
     </aside>
   );

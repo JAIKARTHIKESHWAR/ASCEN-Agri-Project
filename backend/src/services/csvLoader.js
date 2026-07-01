@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
 import { dbRun, dbAll, dbGet, dbTransaction } from '../database.js';
 import { initializeDatabase } from '../scripts/initDb.js';
+import { computeAndStoreAggregates } from './aggregateService.js';
 import { logger } from '../logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -307,6 +308,9 @@ export async function importCSV(filePath, originalFileName, fileHash) {
   const lowercaseName = originalFileName.toLowerCase();
   const isExcel = lowercaseName.endsWith('.xlsx') || lowercaseName.endsWith('.xls');
 
+  // Hoist rawRows so it is accessible for column fingerprinting after the if/else blocks
+  let rawRows = [];
+
   if (isExcel) {
     console.log(`Parsing Excel file using SheetJS: ${originalFileName}`);
     const workbook = XLSX.readFile(filePath, { cellDates: true });
@@ -315,7 +319,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
 
     // sheet_to_json with header:1 gives us [[headerRow...], [dataRow...], ...]
     // We use this to handle header normalisation ourselves
-    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+    rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
     if (rawRows.length < 2) throw new Error('Excel file does not contain enough data.');
 
@@ -353,7 +357,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
     // CSV path: already a 2-D array, convert to objects via header row
     console.log(`Parsing CSV file: ${originalFileName}`);
     const content = fs.readFileSync(filePath, 'utf-8');
-    const rawRows = parseCSV(content);
+    rawRows = parseCSV(content);
 
     if (rawRows.length < 2) throw new Error('CSV file does not contain enough data.');
 
@@ -379,13 +383,42 @@ export async function importCSV(filePath, originalFileName, fileHash) {
 
   if (normalizedRows.length === 0) throw new Error('File contains no data rows after parsing.');
 
-  // ── Step 2: Create upload batch record ────────────────────────────────────
-  const uploadBatchRes = await dbRun(
-    'INSERT INTO upload_batches (file_name, uploaded_at, source_row_count, rows_imported, rows_rejected, file_hash, is_active) VALUES ($1, $2, $3, 0, 0, $4, TRUE) RETURNING batch_id',
-    [originalFileName, new Date().toISOString(), normalizedRows.length, fileHash || null]
-  );
-  const batchId = uploadBatchRes.lastID || (uploadBatchRes.rows && uploadBatchRes.rows[0] ? uploadBatchRes.rows[0].batch_id : null);
+  // Detect which columns are present in this specific file
+  const headers = isExcel ? rawRows[0] : rawRows[0].map(h => h.trim());
+  const detectedColumns = {
+    hasSalesPrice: headers.some(h => normalizeHeader(h).includes('salesprice')),
+    hasSalesAmount: headers.some(h => normalizeHeader(h).includes('salesamount') || normalizeHeader(h).includes('salesamt') || normalizeHeader(h).includes('revenue')),
+    hasCOGM: headers.some(h => normalizeHeader(h).includes('cogm') || normalizeHeader(h).includes('cogs') || normalizeHeader(h).includes('cost')),
+    hasSeasonCode: headers.some(h => normalizeHeader(h).includes('season')),
+    hasIPTFields: headers.some(h => normalizeHeader(h).includes('ipt')),
+    hasExpiryDate: headers.some(h => normalizeHeader(h).includes('expiry')),
+  };
 
+  // Detect dominant financial year from the normalized rows using frequency calculation
+  const fyFrequency = {};
+  normalizedRows.forEach(row => {
+    let fy = deriveFinancialYear(row.fy_code);
+    if (!fy) {
+      const date = parseExcelDate(row.invoice_date);
+      if (date) {
+        const pd = new Date(date);
+        if (!isNaN(pd.getTime())) {
+          const yr = pd.getFullYear();
+          const mo = pd.getMonth();
+          const startYr = mo >= 3 ? yr % 100 : (yr - 1) % 100;
+          const endYr = mo >= 3 ? (yr + 1) % 100 : yr % 100;
+          fy = `FY${String(startYr).padStart(2, '0')}${String(endYr).padStart(2, '0')}`;
+        }
+      }
+    }
+    if (fy && fy !== 'UNKNOWN') {
+      fyFrequency[fy] = (fyFrequency[fy] || 0) + 1;
+    }
+  });
+  const detectedFyCode = Object.entries(fyFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
+
+  let batchId = null;
+  let batchFyCode = 'UNKNOWN'; // declared in outer scope — assigned inside transaction, read after it closes
   let importedCount = 0;
   let rejectedCount = 0;
 
@@ -421,8 +454,30 @@ export async function importCSV(filePath, originalFileName, fileHash) {
   (await dbAll('SELECT territory_id, state, territory FROM territories')).forEach(t =>
     territoryMap.set(`${t.state.toLowerCase()}|${t.territory.toLowerCase()}`, t.territory_id));
 
-  // ── Step 3: Insert rows ───────────────────────────────────────────────────
+  // ── Step 3: Insert rows inside a single database transaction ──────────────
   await dbTransaction(async () => {
+    // Deduplication guard: Check and delete previous batch for this financial year
+    if (detectedFyCode && detectedFyCode !== 'UNKNOWN') {
+      const existingBatch = await dbGet(
+        'SELECT batch_id FROM upload_batches WHERE fy_code = $1 ORDER BY uploaded_at DESC LIMIT 1',
+        [detectedFyCode]
+      );
+      if (existingBatch) {
+        console.log(`[Upload] Guard triggered: Removing stale duplicate batch ${existingBatch.batch_id} for ${detectedFyCode} before import...`);
+        await dbRun('DELETE FROM dataset_aggregates WHERE batch_id = $1', [existingBatch.batch_id]);
+        await dbRun('DELETE FROM import_rejected_rows WHERE batch_id = $1', [existingBatch.batch_id]);
+        await dbRun('DELETE FROM sales_data_raw WHERE batch_id = $1', [existingBatch.batch_id]);
+        await dbRun('DELETE FROM upload_batches WHERE batch_id = $1', [existingBatch.batch_id]);
+      }
+    }
+
+    // Create upload batch record inside the transaction
+    const uploadBatchRes = await dbRun(
+      'INSERT INTO upload_batches (file_name, uploaded_at, source_row_count, rows_imported, rows_rejected, file_hash, is_active) VALUES ($1, $2, $3, 0, 0, $4, TRUE) RETURNING batch_id',
+      [originalFileName, new Date().toISOString(), normalizedRows.length, fileHash || null]
+    );
+    batchId = uploadBatchRes.lastID || (uploadBatchRes.rows && uploadBatchRes.rows[0] ? uploadBatchRes.rows[0].batch_id : null);
+
     for (const row of normalizedRows) {
       try {
         // ── Mandatory fields ──────────────────────────────────────────────
@@ -478,7 +533,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
           : 'N/A';
 
         // ── Numeric fields (strip commas, parse float) ────────────────────
-        const qty = Math.round(parseNumeric(row.qty));
+        const qty = parseNumeric(row.qty);
         const salesPrice = parseNumeric(row.sales_price_inr || row.sales_price);
         const salesAmountINR = parseNumeric(row.sales_amount_inr) || (qty * salesPrice);
         const cogm = parseNumeric(row.cogm) || (salesAmountINR * 0.7);
@@ -548,23 +603,17 @@ export async function importCSV(filePath, originalFileName, fileHash) {
         // Seed Billing Type — classify Z-prefixed SAP codes correctly
         const billingClassification = (() => {
           const code = (billingType || '').toUpperCase();
-          // Gross invoice sales (standard + SAP Z-prefixed variants)
           if (code === 'F2' || code === 'ZF2' || code === 'ZIF2') return 'GROSS_SALE';
-          // Returns / credit memos
           if (code === 'RE' || code === 'ZRE' || code === 'ZIRE') return 'RETURN';
-          // Cancellations
           if (code === 'S1' || code === 'ZS1') return 'CANCELLED';
-          // Everything else (ZSTO, IPT, etc.) = stock transfer
           return 'STOCK_TRANSFER';
         })();
-        // Use DO UPDATE so a re-import always corrects a previously-wrong classification
         await dbRun(
           `INSERT INTO billing_types (billing_type, billing_desc, classification)
            VALUES ($1, $2, $3)
            ON CONFLICT (billing_type) DO UPDATE SET classification = EXCLUDED.classification`,
           [billingType, billingDesc, billingClassification]
         );
-
 
         // Resolve employees
         const amId = await getEmployeeId(amName, 'AM');
@@ -590,7 +639,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
           territoryMap.set(terrKey, territoryId);
         }
 
-        // Insert sales row — directly into sales_data_raw with all 48 columns
+        // Insert sales row
         await dbRun(
           `INSERT INTO sales_data_raw (
             batch_id, invoice_id, invoice_date, billing_type, customer_id, material_code, territory_id, qty, sales_unit, sales_amount_inr, cogm, season_code, fy_code,
@@ -646,7 +695,7 @@ export async function importCSV(filePath, originalFileName, fileHash) {
       LIMIT 1
     `;
     const fyResult = await dbGet(fyCodeQuery, [batchId]);
-    let batchFyCode = fyResult?.fy_code || 'UNKNOWN';
+    batchFyCode = fyResult?.fy_code || 'UNKNOWN'; // assign to outer-scope variable, not a new const
 
     // Finalise batch counts and metadata
     await dbRun(
@@ -656,17 +705,34 @@ export async function importCSV(filePath, originalFileName, fileHash) {
            record_count = $1,
            fy_code = $3, 
            min_date = $4, 
-           max_date = $5 
-       WHERE batch_id = $6`,
-      [importedCount, rejectedCount, batchFyCode, batchStats.min_date || null, batchStats.max_date || null, batchId]
+           max_date = $5,
+           schema_columns = $6
+       WHERE batch_id = $7`,
+      [importedCount, rejectedCount, batchFyCode, batchStats.min_date || null, batchStats.max_date || null, JSON.stringify(detectedColumns), batchId]
     );
+    // NOTE: computeAndStoreAggregates is intentionally called OUTSIDE this
+    // transaction — an aggregate failure must not roll back 39k+ rows of imported data.
   });
 
   console.log(`[Import] Batch ${batchId}: ${importedCount} imported, ${rejectedCount} rejected from ${originalFileName}`);
   logger.info(`Imported ${importedCount} rows from batch ${batchId}`);
 
+  // Compute and store aggregates after the transaction commits successfully.
+  // Errors here are non-fatal: the import already succeeded.
+  try {
+    await computeAndStoreAggregates(batchId, batchFyCode);
+  } catch (aggErr) {
+    console.error(`[Aggregates] Pre-computation failed for batch ${batchId}, but import succeeded:`, aggErr.message);
+  }
+
   return { batchId, rowsImported: importedCount, rowsRejected: rejectedCount };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// computeAndStoreAggregates has been moved to aggregateService.js
+// to break the circular dependency with initDb.js.
+// Re-exported here for any external callers that import from csvLoader directly.
+export { computeAndStoreAggregates } from './aggregateService.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STARTUP HOOK

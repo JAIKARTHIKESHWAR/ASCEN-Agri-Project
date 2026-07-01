@@ -88,30 +88,23 @@ function App() {
   const [toast, setToast] = useState(null);
 
   const [datasetsList, setDatasetsList] = useState([]);
-  const [activeDatasetId, setActiveDatasetId] = useState(() => {
-    return localStorage.getItem('activeDatasetId') || '';
-  });
+  const [activeDatasetId, setActiveDatasetId] = useState('');
 
-  const [analyticsContext, setAnalyticsContext] = useState(() => {
-    const saved = localStorage.getItem('analyticsContext');
-    return saved ? JSON.parse(saved) : {
-      primaryYear: '',
-      comparisonYear: '',
-      compareMode: 'none'
-    };
+  const [analyticsContext, setAnalyticsContext] = useState({
+    primaryYear: '',
+    comparisonYear: '',
+    compareMode: 'none'
   });
 
   const [comparisonMetrics, setComparisonMetrics] = useState(null);
 
+  // Clear dashboard-related storage keys on startup to start completely fresh
   useEffect(() => {
-    if (activeDatasetId) {
-      localStorage.setItem('activeDatasetId', activeDatasetId);
-    }
-  }, [activeDatasetId]);
-
-  useEffect(() => {
-    localStorage.setItem('analyticsContext', JSON.stringify(analyticsContext));
-  }, [analyticsContext]);
+    localStorage.removeItem("activeDatasetId");
+    localStorage.removeItem("analyticsContext");
+    localStorage.removeItem("copilot_session_id");
+    localStorage.removeItem("activeTab");
+  }, []);
 
 
   const fileInputRef = useRef(null);
@@ -275,7 +268,7 @@ function App() {
   useEffect(() => {
     async function loadDatasetsAndActive() {
       try {
-        let savedId = localStorage.getItem('activeDatasetId') || '';
+        let savedId = '';
 
         // Parallelize datasets list and transactions fetching on mount
         const [dsRes, transRes] = await Promise.all([
@@ -470,7 +463,6 @@ function App() {
     const activeDatasets = datasetsList.filter(ds => ds.batch_id !== 'all');
     if (activeDatasets.length > 1) {
       setActiveDatasetId('all');
-      localStorage.setItem('activeDatasetId', 'all');
       reloadDatasetFromBackend('all');
     }
   };

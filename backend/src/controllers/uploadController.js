@@ -109,13 +109,16 @@ export async function softResetData(req, res) {
     
     // Hard delete all sales data and batch records so hashes are cleared
     // and the same file can be re-uploaded cleanly.
+    // Note: dataset_aggregates is deleted explicitly because bulk application-level
+    // DELETEs don't reliably trigger ON DELETE CASCADE in all PostgreSQL driver modes.
+    await dbRun('DELETE FROM dataset_aggregates');
     await dbRun('DELETE FROM import_rejected_rows');
     await dbRun('DELETE FROM sales_data_raw');
     await dbRun('DELETE FROM upload_batches');
     
     res.json({
       status:  'success',
-      message: 'Dashboard has been reset. All uploaded datasets have been removed. You can now re-upload any file.'
+      message: 'Dashboard has been reset. All uploaded datasets and pre-computed aggregates have been removed. You can now re-upload any file.'
     });
   } catch (err) {
     console.error('Dashboard reset failed:', err);

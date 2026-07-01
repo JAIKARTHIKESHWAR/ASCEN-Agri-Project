@@ -13,7 +13,7 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
   const [isMinimized, setIsMinimized] = useState(false);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [sessionId, setSessionId] = useState(localStorage.getItem('copilot_session_id') || null);
+  const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([
     {
       sender: 'ai',
@@ -181,41 +181,20 @@ export default function CopilotWidget({ currentFilters, onAIResponse }) {
   // Bootstrap session and restore history/filters/preferences on mount
   useEffect(() => {
     const initSession = async () => {
-      const storedSessionId = localStorage.getItem('copilot_session_id');
+      // Clear any existing copilot session ID to start completely fresh
+      localStorage.removeItem('copilot_session_id');
       try {
         const res = await fetch('/api/copilot/session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ sessionId: storedSessionId })
+          body: JSON.stringify({ sessionId: null })
         });
         if (res.ok) {
           const data = await res.json();
           setSessionId(data.sessionId);
           localStorage.setItem('copilot_session_id', data.sessionId);
-
-          // Fetch history for the active session
-          const histRes = await fetch(`/api/copilot/history/${data.sessionId}`);
-          if (histRes.ok) {
-            const histData = await histRes.json();
-            if (histData.messages && histData.messages.length > 0) {
-              setMessages(histData.messages);
-
-              // Restore dashboard filters/views from historical context
-              if (histData.session && histData.session.context) {
-                const ctx = histData.session.context;
-                if (onAIResponse) {
-                  onAIResponse({
-                    filters: ctx.filters || {},
-                    navigateTo: ctx.lastTab || 'summary',
-                    section: ctx.lastSection || 'sales-overview',
-                    chartPreferences: ctx.chartPreferences || {}
-                  });
-                }
-              }
-            }
-          }
         }
       } catch (err) {
         console.error('Failed to initialize Copilot session:', err);

@@ -675,3 +675,75 @@ export async function getComparison(req, res) {
   }
 }
 
+/**
+ * GET /api/aggregates
+ * Returns pre-computed aggregates scoped by financial year and dimensions.
+ * For 'all' financial years, groups by dimension and aggregates values.
+ */
+export async function getAggregates(req, res) {
+  try {
+    const { fy_code, dimension_type, dimension_value, limit = 20 } = req.query;
+    
+    let sql = '';
+    const params = [];
+    let idx = 1;
+    
+    if (fy_code && fy_code !== 'all') {
+      sql = `
+        SELECT da.fy_code, da.dimension_type, da.dimension_value,
+               da.gross_sales, da.returns_value, da.cancelled_value,
+               da.net_external_sales, da.total_cogm, da.transaction_count,
+               da.computed_at
+        FROM dataset_aggregates da
+        JOIN upload_batches ub ON da.batch_id = ub.batch_id
+        WHERE ub.is_active = true AND da.fy_code = $${idx++}
+      `;
+      params.push(fy_code);
+      
+      if (dimension_type) {
+        sql += ` AND da.dimension_type = $${idx++}`;
+        params.push(dimension_type);
+      }
+      if (dimension_value) {
+        sql += ` AND da.dimension_value ILIKE $${idx++}`;
+        params.push(`%${dimension_value}%`);
+      }
+      
+      sql += ` ORDER BY da.gross_sales DESC LIMIT $${idx++}`;
+      params.push(parseInt(limit, 10));
+    } else {
+      sql = `
+        SELECT 'all' AS fy_code, da.dimension_type, da.dimension_value,
+               SUM(da.gross_sales) AS gross_sales,
+               SUM(da.returns_value) AS returns_value,
+               SUM(da.cancelled_value) AS cancelled_value,
+               SUM(da.net_external_sales) AS net_external_sales,
+               SUM(da.total_cogm) AS total_cogm,
+               SUM(da.transaction_count) AS transaction_count,
+               MAX(da.computed_at) AS computed_at
+        FROM dataset_aggregates da
+        JOIN upload_batches ub ON da.batch_id = ub.batch_id
+        WHERE ub.is_active = true
+      `;
+      
+      if (dimension_type) {
+        sql += ` AND da.dimension_type = $${idx++}`;
+        params.push(dimension_type);
+      }
+      if (dimension_value) {
+        sql += ` AND da.dimension_value ILIKE $${idx++}`;
+        params.push(`%${dimension_value}%`);
+      }
+      
+      sql += ` GROUP BY da.dimension_type, da.dimension_value ORDER BY gross_sales DESC LIMIT $${idx++}`;
+      params.push(parseInt(limit, 10));
+    }
+    
+    const rows = await originalDbAll(sql, params);
+    res.json({ aggregates: rows, source: 'pre_computed', verified: true });
+  } catch (err) {
+    console.error('Failed to get aggregates:', err);
+    res.status(500).json({ error: 'Failed to retrieve aggregates', details: err.message });
+  }
+}
+
