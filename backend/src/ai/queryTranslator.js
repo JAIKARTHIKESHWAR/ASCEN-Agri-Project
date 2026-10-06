@@ -192,6 +192,17 @@ QUERY STRATEGY PRIORITY (follow in order):
 1. AGGREGATES-FIRST (preferred for 90% of questions): For any question asking about totals, rankings, highest/lowest, comparisons, or trends across crops/states/divisions/months/financial years — query the "dataset_aggregates" table first. This table contains pre-verified, pre-computed stats computed at upload time and is immune to join fan-out, duplicate rows, or schema differences.
    Columns: fy_code, dimension_type ('overall','crop','state','division','month'), dimension_value, gross_sales, returns_value, cancelled_value, net_external_sales, total_cogm, transaction_count.
 
+   ⚠ EXCEPTION — NEVER use dataset_aggregates for hierarchy/employee dimensions:
+   The following columns DO NOT EXIST in dataset_aggregates. Always use ai_sales_records (aliased as sd) for queries involving these:
+   - am_name, am_id (Area Manager)
+   - ti_name, ti_id (Territory Incharge)
+   - rbm_name, rbm_id (Regional Business Manager)
+   - dbm_name, dbm_id (Division Business Manager)
+   - territory_name, territory
+   - customer_name, customer_no
+   - material_name, batch_no, expiry_date
+   For these dimensions, always use: SELECT sd.am_name, SUM(sd.sales_amount_inr) ... FROM ai_sales_records sd WHERE ... GROUP BY sd.am_name
+
 2. DETAIL/OPERATIONAL QUERIES: Use "ai_sales_records" (aliased as sd) when the user asks for individual invoice details, batch numbers, expiry dates, created-by fields, plant/storage location, or specific transaction-level data not available in dataset_aggregates. Always apply LIMIT 100.
 
 3. NEVER use "sales_data" or "sales_data_raw" directly for aggregate questions.
@@ -321,9 +332,7 @@ Output a strict JSON object with this exact schema:
     {"column": "column_name", "operator": "==" | "!=" | ">" | "<" | "in", "value": "value"}
   ],
   "navigation": {
-    "intent": "show_sales_report" | "show_returns_report" | "find_highest_sales" | "change_visualization" | "reset_visualization" | "other",
-    "navigateTo": "summary" | "sales" | "geography" | "product" | "returns" | "transactions",
-    "section": "sales-overview" | "division-contribution" | "top-states" | "top-crops" | "top-dealers" | "sales-by-state" | "returns-summary" | "ai-recommendations" | "monthly-trend" | "distribution-channels" | "season-contribution" | "geographic-performance" | "territory-hierarchy" | "territories-list" | "top-crops-state" | "crops-revenue" | "own-vs-trade" | "varieties-performance" | "returns-pattern" | "returns-by-channel" | "returns-by-state" | "returns-by-crop" | "transaction-drilldown" | "crop-performance",
+    "intent": "gross_sales" | "net_sales" | "sales_returns" | "cancelled_invoices" | "cogm" | "sales_trend" | "division" | "state" | "crop" | "dealer" | "distribution_channel" | "monthly_sales" | "season" | "geography" | "hierarchy" | "territory" | "crop_performance" | "own_trade" | "returns" | "returns_channel" | "returns_state" | "returns_crop" | "invoice" | "none",
     "confidence": 0.0..1.0,
     "filters": {
       "financialYear": "FY2627" | "FY2425" | null,

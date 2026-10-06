@@ -406,7 +406,7 @@ function ExecutiveSummary({
     <div className="page-container">
       {/* KPI Cards Grid */}
       <section className="kpi-grid">
-        <div className="kpi-card gross-sales-card">
+        <div id="gross-sales-card" className="kpi-card gross-sales-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Gross Invoice Sales</span>
             {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.grossSalesGrowth)}
@@ -423,7 +423,7 @@ function ExecutiveSummary({
           )}
           <span className="kpi-subtitle">Standard invoices (F2)</span>
         </div>
-        <div className="kpi-card sales-returns-card">
+        <div id="sales-returns-card" className="kpi-card sales-returns-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Sales Returns</span>
             {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.returnsGrowth)}
@@ -440,7 +440,7 @@ function ExecutiveSummary({
           )}
           <span className="kpi-subtitle">RE return transactions</span>
         </div>
-        <div className="kpi-card cancelled-invoices-card">
+        <div id="cancelled-invoices-card" className="kpi-card cancelled-invoices-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Cancelled Invoices</span>
             {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.cancelledGrowth)}
@@ -457,7 +457,7 @@ function ExecutiveSummary({
           )}
           <span className="kpi-subtitle">Cancellation billing (S1)</span>
         </div>
-        <div className="kpi-card net-sales-card">
+        <div id="net-sales-card" className="kpi-card net-sales-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="kpi-title">Net External Sales</span>
             {comparisonMetrics && analyticsContext.compareMode !== 'none' && renderGrowthBadge(comparisonMetrics.growth?.netSalesGrowth)}
@@ -474,7 +474,7 @@ function ExecutiveSummary({
           )}
           <span className="kpi-subtitle">Gross - Returns - Cancelled</span>
         </div>
-        <div className="kpi-card cogm-card">
+        <div id="cogm-card" className="kpi-card cogm-card">
           <span className="kpi-title">Cost of Production</span>
           <span className="kpi-value">{formatCurrency(kpis.totalCOGM)}</span>
           <span className="kpi-subtitle">Manufacturing COGM cost</span>

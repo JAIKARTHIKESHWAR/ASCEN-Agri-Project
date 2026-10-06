@@ -14,7 +14,7 @@ if (apiKey) {
   openaiClient = new OpenAI({ apiKey });
 }
 
-export async function synthesizeAnswer(question, queryPlan, resultRows, activeFilters = {}) {
+export async function synthesizeAnswer(question, queryPlan, resultRows, activeFilters = {}, responseContext = {}) {
   const isMultiQuery = resultRows?.isMultiQuery === true;
   const flatRows = isMultiQuery
     ? resultRows.results.flatMap(r => r.rows)
@@ -126,14 +126,40 @@ export async function synthesizeAnswer(question, queryPlan, resultRows, activeFi
   if (hasQty && hasBatchCount) {
     const totalQtyVal = flatRows[0].total_quantity !== undefined ? flatRows[0].total_quantity : flatRows[0].total_kg;
     const batchCountVal = flatRows[0].number_of_batches !== undefined ? flatRows[0].number_of_batches : flatRows[0].batch_count;
-    
-    const formattedQty = Number(totalQtyVal).toLocaleString('en-IN');
+
+    const formattedQty    = Number(totalQtyVal).toLocaleString('en-IN');
     const formattedBatches = Number(batchCountVal).toLocaleString('en-IN');
-    const fyList = financialYears.join(', ');
+    const fyLabel = financialYears.join(' + ');
+
+    const answer =
+`## Executive Summary
+
+**${entityName.toUpperCase()}** recorded **${formattedBatches} batches** with a total quantity of **${formattedQty} ${displayUnit}** across **${fyLabel}**.
+
+## Results
+
+| Metric | Value |
+|---|---|
+| **Unique Batches** | **${formattedBatches}** |
+| **Total Quantity** | **${formattedQty} ${displayUnit}** |
+
+## Analysis
+
+| Analysis | Value |
+|---|---|
+| **Financial Years** | ${fyLabel} |
+| **Metric** | Sales Quantity |
+
+## Key Insights
+
+- **${entityName.toUpperCase()}** had **${formattedBatches} distinct batches**.
+- Total quantity reached **${formattedQty} ${displayUnit}** across the analyzed period.
+
+**Scope:** ${fyLabel} · **Sales Quantity** · All Divisions`;
 
     return {
-      answer: `# Executive Summary\n\n**${entityName.toUpperCase()}** recorded a cumulative sales quantity of **${formattedQty} ${displayUnit}** across **${formattedBatches} unique production batches**, covering all available financial years.\n\n## Key Metrics\n\n| KPI | Value |\n|---|---:|\n| Product | **${entityName.toUpperCase()}** |\n| Total Quantity | **${formattedQty} ${displayUnit}** |\n| Unique Batches | **${formattedBatches}** |\n| Financial Years | ${fyList} |\n\n## Executive Insight\n\nThe sales volume is distributed across a substantial number of production batches, indicating consistent manufacturing and inventory replenishment throughout the reporting period. The batch spread also strengthens product traceability and reduces operational dependence on a limited set of production lots.\n\n## Recommendation\n\nReview batch-level sales velocity alongside expiry dates to identify slow-moving inventory and optimise future production and replenishment planning.`,
-      insights: `There are ${formattedBatches} batches of ${entityName} with a total quantity of ${formattedQty} ${displayUnit.toLowerCase()}.`
+      answer,
+      insights: `${entityName}: ${formattedBatches} batches, ${formattedQty} ${displayUnit} across ${fyLabel}.`
     };
   }
 
@@ -265,103 +291,100 @@ export async function synthesizeAnswer(question, queryPlan, resultRows, activeFi
     resultString = JSON.stringify(normalizedRows.slice(0, 15));
   }
 
-  const systemPrompt = `You are Acsen Executive BI Copilot.
+  // ── Assemble Analysis context for the prompt ─────────────────────────────
+  // Build a compact, relevant Analysis block: only include rows that make sense
+  // for this specific question. Financial Years always included; other rows only
+  // when their metric is relevant.
+  const fyLabel = responseContext.scope?.financialYears?.length
+    ? responseContext.scope.financialYears.join(queryPlan?.comparisonContext?.compareMode ? ' vs ' : ' + ')
+    : 'N/A';
 
-Your audience is:
-- CEO
-- Sales Director
-- Business Head
-- Regional Sales Manager
+  const activeFilterEntries = responseContext.filters
+    ? Object.entries(responseContext.filters).filter(([, v]) => v && v !== 'All' && v !== 'Full FY' && v !== 'Combined')
+    : [];
+  const activeFilterLine = activeFilterEntries.length
+    ? activeFilterEntries.map(([k, v]) => `${k}: ${v}`).join(', ')
+    : null;
 
-Your responses must read like an executive business intelligence report, not like a chatbot.
+  // Choose which Analysis rows to emit based on metricType
+  const analysisRows = [];
+  analysisRows.push(`| Financial Years | ${fyLabel} |`);
+  if (['net_sales', 'gross_sales'].includes(responseContext.metricType)) {
+    analysisRows.push(`| Revenue Basis | ${responseContext.calculationBasis || 'Net Revenue'} |`);
+  }
+  if (responseContext.metricType === 'returns') {
+    analysisRows.push(`| Returns Basis | ZRE + ZIRE |`);
+  }
+  if (responseContext.metricType === 'cancelled') {
+    analysisRows.push(`| Cancellation Basis | ZS1 |`);
+  }
+  if (responseContext.metricType === 'cogm') {
+    analysisRows.push(`| Metric | Cost of Goods Manufactured (COGM) |`);
+  }
+  if (responseContext.metricType === 'quantity') {
+    analysisRows.push(`| Metric | Sales Quantity |`);
+  }
+  if (activeFilterLine) {
+    analysisRows.push(`| Active Filters | ${activeFilterLine} |`);
+  }
+  const analysisBlock = `| Analysis | Value |\n| --- | --- |\n${analysisRows.slice(0, 3).join('\n')}`;
 
-====================================
-RESPONSE STYLE
-====================================
+  // Scope badge line (single compact line shown after Key Insights)
+  const scopeDivision = responseContext.filters?.division && responseContext.filters.division !== 'All'
+    ? `${responseContext.filters.division} Division`
+    : 'All Divisions';
+  const scopeBasisShort = responseContext.calculationBasis
+    ? responseContext.calculationBasis.split('=')[0].trim()
+    : 'Net Revenue';
+  const scopeLine = `*Scope: ${fyLabel} · ${scopeBasisShort} · ${scopeDivision}*`;
 
-Write concise executive reports.
-Never write conversational fillers.
-
-Never say:
-- "The data indicates..."
-- "The sales records show..."
-- "Based on the records..."
-- "Here are the findings..."
-- "The requested product..."
-- "The analysis reveals..."
-
-Start immediately with the business outcome.
-
-Every report must contain exactly four sections:
-# Executive Summary
-One concise paragraph (maximum 2 sentences).
-Immediately answer the user's question.
-Mention:
-• Product / Segment / Area
-• Financial years covered
-• Primary KPI
-
-------------------------------------
-## Key Metrics
-Present KPIs using a clean markdown table.
-Only include metrics that directly answer the question.
-Never bold table headers.
-
-------------------------------------
-## Executive Insight
-This section is mandatory.
-Generate an analytical observation based ONLY on the supplied metrics context.
-Do NOT repeat raw KPI values unless necessary. Explain their business significance.
-Only infer what is logically supported by the data.
-Never invent facts.
-Maximum 2 sentences.
-
-------------------------------------
-## Recommendation
-Provide one strategic recommendation based on the data.
-Never give generic advice.
-Recommendation must relate to the returned data.
+  const systemPrompt = `You are Acsen Executive BI Copilot. Your audience is senior business leaders (CEO, Sales Director, Business Head).
 
 ====================================
-FORMATTING
+RESPONSE STRUCTURE — exactly 4 sections
 ====================================
-Use markdown.
-Never use emojis.
-Never use filler words.
-Never write more than 4 sections.
-Bold only:
-- KPI values
-- Product/Crop/State/Division names
-Maximum three bold elements per paragraph.
-Never bold table headers.
+Return ONLY these 4 sections in this exact order. No other sections. No preamble.
+
+## Executive Summary
+One sentence, maximum 35 words. Directly answer the question. Include the winning entity name and the key figure.
+✓ Good: **HYBRID HOTPEPPER** generated ₹114.66 Cr net revenue across FY2425+FY2627, the highest among all crops.
+✗ Bad: "Based on the data provided, it can be observed that HYBRID HOTPEPPER..."
+
+## Results
+ONE table only. Choose the table structure that matches the question type:
+- Ranking question  → | Rank | Entity | Revenue |
+- Comparison question → | Metric | ${responseContext.scope?.financialYears?.[0] || 'Period 1'} | ${responseContext.scope?.financialYears?.[1] || 'Period 2'} |
+- Trend question → | Month | Revenue |
+- Distribution/Channel → | Segment | Revenue | Share % |
+- Transaction/Invoice → | Invoice ID | Customer | Date | Amount |
+- Single aggregate → | Metric | Value |
+Bold entity names (crop, state, division names) and all data values inside table cells. Format currency as ₹X.XX Cr (>=1Cr) or ₹X.XX Lakhs (>=1L). Never show raw integers for money.
+
+## Analysis
+${analysisBlock}
+(This table is pre-filled. Do not add extra rows. Do not replace it. Copy it verbatim into your answer.)
+
+## Key Insights
+Exactly 2 bullet points. Each must be under 20 words. Factual — computed from the data, not generic.
+For comparisons: note leader change, growth gap, or period difference.
+✓ Good: "Revenue leadership shifted from **HYBRID MUSTARD** (FY2425) to **HYBRID HOTPEPPER** (FY2627)."
+✗ Bad: "Revenue shows an upward trend indicating positive business performance."
+
+${scopeLine}
 
 ====================================
-QUANTITY RULES
+STRICT RULES
 ====================================
-Never convert SUM(qty) or total_quantity.
-Never divide quantity by 10, 100, 1000 or any other factor.
-Never assume grams, tonnes or packet conversions.
-Display quantity exactly as returned.
-Do not insert decimal points unless they already exist in the SQL result.
+- NEVER add Recommendations unless the user explicitly asked for recommendations or suggestions.
+- NEVER add "Data Used", "Scope of Analysis", "Query Metadata", "Billing Types", "Applied Filters" sections.
+- NEVER use filler phrases: "Based on the analysis...", "It can be observed...", "The data indicates...", "Here is...", "The analysis shows..."
+- NEVER use emojis.
+- Bold ALL data values (numbers, currency amounts, FY labels, KG quantities, entity names). Never bold table headers.
+- The entire response must be compact — suitable for a chat sidebar panel.
+- The scope line must appear verbatim after Key Insights, formatted as: **Scope:** FY · Basis · Division
 
-====================================
-CURRENCY RULES
-====================================
-- 1 Crore (Cr) = 10,000,000 (10^7)
-- 1 Lakh (L) = 100,000 (10^5)
-- To convert raw INR to Crores: divide by 10000000 (NOT by 1000000)
-- Example: 394917166.46 = ₹39.49 Cr
-- Example: 57708000.00 = ₹5.77 Cr
-- Always round to 2 decimal places
-- For values less than 1 Crore, use Lakhs: e.g. 693516.00 = ₹6.94 Lakhs
-- ALWAYS show the raw number as ₹X.XX Cr or ₹X.XX Lakhs — never show raw integers in the answer
-
-You must return a strict JSON object with this exact schema:
-{
-  "answer": "Markdown formatted answer",
-  "insights": "Markdown formatted business insight"
-}
-Do not include any conversational text or markdown code blocks around the JSON. Only return the raw JSON.
+Return a raw JSON object only — no markdown code block wrapping:
+{"answer": "full 4-section markdown answer", "insights": "one-line plain-text summary for logging"}
 `;
 
   try {
@@ -382,7 +405,7 @@ Please synthesize the final answer:`;
         ],
         model: 'gpt-4o-mini',
         response_format: { type: 'json_object' },
-        temperature: 0.2
+        temperature: 0.3
       });
     } catch (apiErr) {
       if (apiErr.status === 429 || String(apiErr.message).includes('limit') || String(apiErr.message).includes('Limit')) {

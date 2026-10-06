@@ -26,7 +26,11 @@ const defaultSuggestions = [
 
 function sanitizeEncoding(str) {
   if (typeof str !== 'string') return str;
-  return str.replace(/₹/g, 'Rs.');
+  return str
+    .replace(/₹/g, 'Rs.')
+    .replace(/[\u2212\u2010\u2011\u2012\u2013\u2014\u2015]/g, '-') // replace all unicode minus/dashes with standard ASCII hyphen (-)
+    .replace(/[\u00d7\u2715]/g, 'x') // replace unicode multiplication signs with standard ASCII x
+    .replace(/−/g, '-');
 }
 
 /**
@@ -787,8 +791,114 @@ export async function processQuestion({ question, sessionId, filters }) {
     return responsePayload;
   }
 
+  // 10.5 Determine metric type, billing types, and Scope metadata
+  const qLower = question.toLowerCase();
+  let metricType = 'net_sales';
+  if (qLower.includes('gross') || qLower.includes('gross sales')) {
+    metricType = 'gross_sales';
+  } else if (qLower.includes('return') || qLower.includes('refund') || qLower.includes('returned')) {
+    metricType = 'returns';
+  } else if (qLower.includes('cancel') || qLower.includes('cancelled')) {
+    metricType = 'cancelled';
+  } else if (qLower.includes('cogm') || qLower.includes('cost of goods')) {
+    metricType = 'cogm';
+  } else if (qLower.includes('quantity') || qLower.includes('kg') || qLower.includes('volume') || qLower.includes('weight') || qLower.includes('packet')) {
+    metricType = 'quantity';
+  }
+
+  let billingTypes = [];
+  let calculationBasis = '';
+
+  if (metricType === 'net_sales') {
+    billingTypes = [
+      { code: 'ZF2', description: 'Acsen Invoice', status: 'Included' },
+      { code: 'ZSTO', description: 'Stock Transfer', status: 'Included' },
+      { code: 'ZIF2', description: 'Inter-Company Invoice', status: 'Included' },
+      { code: 'ZRE', description: 'Acsen Returns', status: 'Yes (deducted)' },
+      { code: 'ZS1', description: 'Acsen Cancel Invoice', status: 'Yes (deducted)' },
+      { code: 'ZIRE', description: 'Inter-Company Returns', status: 'Yes (deducted)' }
+    ];
+    calculationBasis = 'Net Revenue = ZF2 + ZSTO + ZIF2 − ZRE − ZS1 − ZIRE';
+  } else if (metricType === 'gross_sales') {
+    billingTypes = [
+      { code: 'ZF2', description: 'Acsen Invoice', status: 'Included' },
+      { code: 'ZSTO', description: 'Stock Transfer', status: 'Included' },
+      { code: 'ZIF2', description: 'Inter-Company Invoice', status: 'Included' },
+      { code: 'ZRE', description: 'Acsen Returns', status: 'Excluded' },
+      { code: 'ZS1', description: 'Acsen Cancel Invoice', status: 'Excluded' },
+      { code: 'ZIRE', description: 'Inter-Company Returns', status: 'Excluded' }
+    ];
+    calculationBasis = 'Gross Sales = ZF2 + ZSTO + ZIF2';
+  } else if (metricType === 'returns') {
+    billingTypes = [
+      { code: 'ZF2', description: 'Acsen Invoice', status: 'Excluded' },
+      { code: 'ZSTO', description: 'Stock Transfer', status: 'Excluded' },
+      { code: 'ZIF2', description: 'Inter-Company Invoice', status: 'Excluded' },
+      { code: 'ZRE', description: 'Acsen Returns', status: 'Included' },
+      { code: 'ZS1', description: 'Acsen Cancel Invoice', status: 'Excluded' },
+      { code: 'ZIRE', description: 'Inter-Company Returns', status: 'Included' }
+    ];
+    calculationBasis = 'Returns = ZRE + ZIRE';
+  } else if (metricType === 'cancelled') {
+    billingTypes = [
+      { code: 'ZF2', description: 'Acsen Invoice', status: 'Excluded' },
+      { code: 'ZSTO', description: 'Stock Transfer', status: 'Excluded' },
+      { code: 'ZIF2', description: 'Inter-Company Invoice', status: 'Excluded' },
+      { code: 'ZRE', description: 'Acsen Returns', status: 'Excluded' },
+      { code: 'ZS1', description: 'Acsen Cancel Invoice', status: 'Included' },
+      { code: 'ZIRE', description: 'Inter-Company Returns', status: 'Excluded' }
+    ];
+    calculationBasis = 'Cancelled Sales = ZS1';
+  } else {
+    billingTypes = [
+      { code: 'ZF2', description: 'Acsen Invoice', status: 'Included' },
+      { code: 'ZSTO', description: 'Stock Transfer', status: 'Included' },
+      { code: 'ZIF2', description: 'Inter-Company Invoice', status: 'Included' },
+      { code: 'ZRE', description: 'Acsen Returns', status: 'Yes (deducted)' },
+      { code: 'ZS1', description: 'Acsen Cancel Invoice', status: 'Yes (deducted)' },
+      { code: 'ZIRE', description: 'Inter-Company Returns', status: 'Yes (deducted)' }
+    ];
+    calculationBasis = 'Net Revenue = ZF2 + ZSTO + ZIF2 − ZRE − ZS1 − ZIRE';
+  }
+
+  let filesUsed = [];
+  let recordCount = 0;
+  let uploadYears = [];
+  try {
+    const activeBatches = await dbAll("SELECT file_name, fy_code, record_count FROM upload_batches WHERE deleted_at IS NULL AND is_active = true");
+    filesUsed = activeBatches.map(b => b.file_name);
+    uploadYears = [...new Set(activeBatches.map(b => b.fy_code))];
+    
+    const countRes = await dbGet("SELECT COUNT(*) AS count FROM sales_data_raw");
+    recordCount = parseInt(countRes?.count || 0, 10);
+  } catch (e) {
+    console.error("Failed to query upload_batches metadata:", e);
+  }
+
+  const responseContext = {
+    scope: {
+      filesUsed,
+      financialYears: uploadYears,
+      recordCount,
+      generatedAt: new Date().toLocaleString('en-IN')
+    },
+    filters: {
+      crop: mergedFilters.crop || 'All',
+      state: mergedFilters.state || 'All',
+      division: mergedFilters.division || 'All',
+      territory: mergedFilters.territory || 'All',
+      customer: mergedFilters.customer || 'All',
+      material: mergedFilters.material || 'All',
+      dateRange: mergedFilters.startDate && mergedFilters.endDate ? `${mergedFilters.startDate} to ${mergedFilters.endDate}` : 'Full FY',
+      dataset: mergedFilters.datasetId && mergedFilters.datasetId !== 'all' ? mergedFilters.datasetId : 'Combined'
+    },
+    metricType,
+    billingTypes,
+    calculationBasis
+  };
+
   // 11. Synthesize Answer
-  const synthesized = await synthesizeAnswer(question, queryPlan, resultRows, mergedFilters);
+  const synthesized = await synthesizeAnswer(question, queryPlan, resultRows, mergedFilters, responseContext);
   const answer = (synthesized && typeof synthesized === 'object') ? (synthesized.answer || '') : (synthesized || '');
   const insights = (synthesized && typeof synthesized === 'object') ? (synthesized.insights || '') : '';
 
@@ -798,76 +908,198 @@ export async function processQuestion({ question, sessionId, filters }) {
   }
   const planNav = queryPlan.navigation;
   
-  // Rule-based deterministic navigation overrides
-    const NAV_RULES = [
-      {
-        keywords: ['division', 'divisional', 'vg', 'fc', 'cm', 'vegetables', 'field crops'],
-        navigateTo: 'sales',
-        section: 'division-contribution'
-      },
-      {
-        keywords: ['crop', 'product', 'variety', 'top crop', 'revenue crop', 'material'],
-        navigateTo: 'product',
-        section: 'crops-revenue'
-      },
-      {
-        keywords: ['state', 'territory', 'region', 'geography', 'place', 'location', 'area'],
-        navigateTo: 'geography',
-        section: 'top-states'
-      },
-      {
-        keywords: ['return', 'refund', 'returned'],
-        navigateTo: 'returns',
-        section: 'returns-summary'
-      },
-      {
-        keywords: ['invoice', 'transaction', 'packet', 'batch', 'plant', 'expiry', 'sales order', 'created by', 'detail', 'list'],
-        navigateTo: 'transactions',
-        section: 'transaction-drilldown'
-      }
-    ];
+  // ── Navigation Registry: intent → { tab, section } ──────────────────────
+  // Add new intent keys here as the dashboard grows. Never touch resolveNavigation.
+  const navigationRegistry = {
+    gross_sales:         { tab: 'summary',      section: 'gross-sales-card' },
+    net_sales:           { tab: 'summary',      section: 'net-sales-card' },
+    sales_returns:       { tab: 'summary',      section: 'sales-returns-card' },
+    cancelled_invoices:  { tab: 'summary',      section: 'cancelled-invoices-card' },
+    cogm:                { tab: 'summary',      section: 'cogm-card' },
+    sales_trend:         { tab: 'summary',      section: 'sales-overview' },
+    division:            { tab: 'summary',      section: 'division-contribution' },
+    state:               { tab: 'summary',      section: 'top-states' },
+    crop:                { tab: 'summary',      section: 'top-crops' },
+    dealer:              { tab: 'summary',      section: 'top-dealers' },
+    distribution_channel:{ tab: 'sales',        section: 'distribution-channels' },
+    monthly_sales:       { tab: 'sales',        section: 'monthly-trend' },
+    season:              { tab: 'sales',        section: 'season-contribution' },
+    geography:           { tab: 'geography',    section: 'geographic-performance' },
+    hierarchy:           { tab: 'geography',    section: 'territory-hierarchy' },
+    territory:           { tab: 'geography',    section: 'territories-list' },
+    crop_performance:    { tab: 'product',      section: 'crops-revenue' },
+    own_trade:           { tab: 'product',      section: 'own-vs-trade' },
+    returns:             { tab: 'returns',      section: 'returns-pattern' },
+    returns_channel:     { tab: 'returns',      section: 'returns-by-channel' },
+    returns_state:       { tab: 'returns',      section: 'returns-by-state' },
+    returns_crop:        { tab: 'returns',      section: 'returns-by-crop' },
+    invoice:             { tab: 'transactions', section: 'transaction-drilldown' }
+  };
 
-  const queryLower = question.toLowerCase();
-  let matchedRule = null;
-  for (const rule of NAV_RULES) {
-    if (rule.keywords.some(kw => queryLower.includes(kw))) {
-      matchedRule = rule;
-      break;
+  // ── Entity-aware result-row → navigation map ──────────────────────────────
+  // Each entry maps a dimension type to: which SQL columns identify it, where it
+  // should navigate, and which frontend filter key to populate.
+  // Add new dimensions here only — no resolver logic changes needed.
+  const entityNavigationMap = [
+    { entity: 'division',  fields: ['division'],                                                     tab: 'summary',      section: 'division-contribution',  filterKey: 'division' },
+    { entity: 'crop',      fields: ['crop', 'crop_name', 'material_desc', 'material_name', 'product'], tab: 'summary',     section: 'top-crops',              filterKey: 'crop' },
+    { entity: 'state',     fields: ['state', 'territory_name', 'state_name'],                         tab: 'summary',      section: 'top-states',             filterKey: 'state' },
+    { entity: 'dealer',    fields: ['customer', 'customer_name', 'dealer', 'dealer_name'],            tab: 'summary',      section: 'top-dealers',            filterKey: 'customer' },
+    { entity: 'channel',   fields: ['distribution_channel', 'channel', 'dist_channel'],              tab: 'sales',        section: 'distribution-channels',  filterKey: 'distributionChannel' },
+    { entity: 'territory', fields: ['territory', 'territory_code'],                                   tab: 'geography',    section: 'territories-list',       filterKey: 'territory' },
+    { entity: 'material',  fields: ['material', 'material_code', 'material_no'],                      tab: 'product',      section: 'crops-revenue',          filterKey: 'material' }
+  ];
+
+  /**
+   * resolveNavigation — 5-priority deterministic resolver.
+   *
+   * Priority:
+   *   1. Explicit LLM intent key in navigationRegistry
+   *   2. Entity detected in actual SQL result rows (via entityNavigationMap)
+   *   3. Question keyword heuristics
+   *   4. Metric column name
+   *   5. Default page
+   *
+   * If query confidence < 0.6, navigation is suppressed (skipNavigation=true).
+   */
+  function resolveNavigation(intent, question, qPlan, rows) {
+    const qLower = (question || '').toLowerCase();
+    const confidence = typeof qPlan?.confidence === 'number' ? qPlan.confidence : 0.95;
+
+    // Suppress navigation for very low-confidence queries — stay in Copilot panel
+    if (confidence < 0.6) {
+      console.log('[Navigation Resolver] Confidence below threshold — navigation suppressed.');
+      return { page: 'summary', section: 'sales-overview', skipNavigation: true };
     }
+
+    // ── Priority 1: Direct intent registry lookup ─────────────────────────
+    if (intent && navigationRegistry[intent]) {
+      const match = navigationRegistry[intent];
+      return { page: match.tab, section: match.section };
+    }
+
+    // ── Priority 2: Entity detected from SQL result rows ──────────────────
+    // Flatten multi-query or single-query rows
+    const flatResultRows = Array.isArray(rows)
+      ? rows
+      : (rows?.results?.[0]?.rows || []);
+    if (flatResultRows.length > 0) {
+      const topRowKeys = Object.keys(flatResultRows[0]).map(k => k.toLowerCase());
+      for (const entityDef of entityNavigationMap) {
+        for (const field of entityDef.fields) {
+          if (topRowKeys.includes(field.toLowerCase())) {
+            return { page: entityDef.tab, section: entityDef.section };
+          }
+        }
+      }
+    }
+
+    // ── Priority 3: Question keyword heuristics ───────────────────────────
+    if (qLower.includes('gross') && (qLower.includes('sale') || qLower.includes('revenue') || qLower.includes('value'))) {
+      return { page: 'summary', section: 'gross-sales-card' };
+    }
+    if (qLower.includes('net') && (qLower.includes('sale') || qLower.includes('revenue') || qLower.includes('value'))) {
+      return { page: 'summary', section: 'net-sales-card' };
+    }
+    if (qLower.includes('cancel') || qLower.includes('cancelled')) {
+      return { page: 'summary', section: 'cancelled-invoices-card' };
+    }
+    if (qLower.includes('cogm') || qLower.includes('production cost') || qLower.includes('cost of production')) {
+      return { page: 'summary', section: 'cogm-card' };
+    }
+    if (qLower.includes('sales trend') || qLower.includes('overall trend') || qLower.includes('overall sales')) {
+      return { page: 'summary', section: 'sales-overview' };
+    }
+    if (qLower.includes('return') || qLower.includes('refund') || qLower.includes('returned')) {
+      if (qLower.includes('channel'))                         return { page: 'returns', section: 'returns-by-channel' };
+      if (qLower.includes('state') || qLower.includes('where')) return { page: 'returns', section: 'returns-by-state' };
+      if (qLower.includes('crop') || qLower.includes('product')) return { page: 'returns', section: 'returns-by-crop' };
+      return { page: 'returns', section: 'returns-pattern' };
+    }
+    if (qLower.includes('division') || qLower.includes('divisional') || qLower.includes('vg') || qLower.includes('fc') || qLower.includes('cm') || qLower.includes('vegetable') || qLower.includes('field crop') || qLower.includes('crop management')) {
+      return { page: 'summary', section: 'division-contribution' };
+    }
+    if (qLower.includes('dealer') || qLower.includes('customer') || qLower.includes('retailer')) {
+      return { page: 'summary', section: 'top-dealers' };
+    }
+    if (qLower.includes('channel') || qLower.includes('distributor') || qLower.includes('distribution')) {
+      return { page: 'sales', section: 'distribution-channels' };
+    }
+    if (qLower.includes('monthly') || qLower.includes('month') || qLower.includes('trend')) {
+      return { page: 'sales', section: 'monthly-trend' };
+    }
+    if (qLower.includes('season') || qLower.includes('kharif') || qLower.includes('rabi')) {
+      return { page: 'sales', section: 'season-contribution' };
+    }
+    if (qLower.includes('hierarchy') || qLower.includes('structure')) {
+      return { page: 'geography', section: 'territory-hierarchy' };
+    }
+    if (qLower.includes('territory') || qLower.includes('territories')) {
+      return { page: 'geography', section: 'territories-list' };
+    }
+    if (qLower.includes('state') || qLower.includes('geography') || qLower.includes('region')) {
+      return { page: 'geography', section: 'geographic-performance' };
+    }
+    if (qLower.includes('crop') || qLower.includes('product') || qLower.includes('variety') || qLower.includes('mustard') || qLower.includes('hotpepper') || qLower.includes('tomato') || qLower.includes('cotton') || qLower.includes('paddy') || qLower.includes('maize')) {
+      if (qLower.includes('own') || qLower.includes('trade')) return { page: 'product', section: 'own-vs-trade' };
+      return { page: 'product', section: 'crops-revenue' };
+    }
+    if (qLower.includes('invoice') || qLower.includes('transaction') || qLower.includes('batch') || qLower.includes('expiry') || qLower.includes('detail') || qLower.includes('list')) {
+      return { page: 'transactions', section: 'transaction-drilldown' };
+    }
+
+    // ── Priority 4: Metric column name ─────────────────────────────────────
+    const metricCol = (qPlan?.metric?.column || '').toLowerCase();
+    if (metricCol.includes('cogm'))    return { page: 'summary',  section: 'cogm-card' };
+    if (metricCol.includes('return'))  return { page: 'returns',  section: 'returns-pattern' };
+    if (metricCol.includes('cancel'))  return { page: 'summary',  section: 'cancelled-invoices-card' };
+    if (metricCol.includes('gross'))   return { page: 'summary',  section: 'gross-sales-card' };
+
+    // ── Priority 5: Default ────────────────────────────────────────────────
+    return { page: 'summary', section: 'sales-overview' };
   }
 
-  if (matchedRule) {
-    planNav.navigateTo = matchedRule.navigateTo;
-    planNav.section = matchedRule.section;
-    planNav.intent = 'show_sales_report';
-    console.log(`Deterministic navigation override matched: ${matchedRule.navigateTo} (${matchedRule.section})`);
+  // Resolve and validate routes (pass queryPlan + resultRows for priority-2 entity detection)
+  const queryLower = question.toLowerCase();
+  const resolvedNav = resolveNavigation(planNav.intent, question, queryPlan, resultRows);
+  if (!resolvedNav.skipNavigation) {
+    planNav.navigateTo = resolvedNav.page;
+    planNav.section    = resolvedNav.section;
   }
+
+  if (!planNav.intent || planNav.intent === 'none') {
+    planNav.intent = 'show_sales_report';
+  }
+  console.log(`[Navigation Resolver] Resolved route to Tab: ${planNav.navigateTo}, Section: ${planNav.section}${resolvedNav.skipNavigation ? ' (suppressed — low confidence)' : ''}`);
 
   if (!planNav.filters) {
     planNav.filters = {};
   }
   const planFilters = planNav.filters;
 
-  // Dynamically enrich navigation filters using actual SQL results if it is a "top/highest/best" type query
+  // ── Entity-aware filter injection ─────────────────────────────────────────
+  // For top/ranking queries, read the top result row and inject the entity value
+  // into navigation filters so the frontend filter bar updates automatically.
+  // Uses entityNavigationMap so adding a new dimension requires only one edit.
   const isTopQuery = queryLower.includes('highest') || queryLower.includes('top') || queryLower.includes('best') || queryLower.includes('maximum') || queryLower.includes('most');
-  
-  if (isTopQuery && resultRows.length > 0) {
-    const topRow = resultRows[0];
-    for (const key of Object.keys(topRow)) {
-      const val = topRow[key];
-      if (val === null || val === undefined) continue;
-      
-      const keyLower = key.toLowerCase();
-      // Only extract string names, ignore numeric metrics (like crop_revenue or state_sales)
-      if (isNaN(Number(val))) {
-        if (keyLower.includes('crop') || keyLower.includes('material_desc') || keyLower.includes('material_name')) {
-          planFilters.crop = String(val);
-        } else if (keyLower.includes('state')) {
-          planFilters.state = String(val);
-        } else if (keyLower.includes('division')) {
-          planFilters.division = String(val).toUpperCase();
-        } else if (keyLower.includes('channel') || keyLower.includes('dist_channel') || keyLower.includes('distribution_channel')) {
-          planFilters.distributionChannel = String(val);
+
+  if (isTopQuery) {
+    const flatForFilters = Array.isArray(resultRows)
+      ? resultRows
+      : (resultRows?.results?.[0]?.rows || []);
+
+    if (flatForFilters.length > 0) {
+      const topRow = flatForFilters[0];
+      for (const entityDef of entityNavigationMap) {
+        for (const field of entityDef.fields) {
+          const val = topRow[field];
+          if (val !== null && val !== undefined && isNaN(Number(val))) {
+            // Inject the string entity name into the filter (e.g. division='VG', crop='HYBRID HOTPEPPER')
+            planFilters[entityDef.filterKey] = entityDef.entity === 'division'
+              ? String(val).toUpperCase()
+              : String(val);
+            break; // one match per entity type is enough
+          }
         }
       }
     }
